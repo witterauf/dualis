@@ -3,6 +3,7 @@
 #include <concepts>
 #include <cstddef>
 #include <filesystem>
+#include <fstream>
 #include <initializer_list>
 #include <span>
 #include <vector>
@@ -59,8 +60,10 @@ public:
 
     static auto from_file(const std::filesystem::path& path) -> _byte_vector
     {
-        std::ifstream input{path};
         auto const size = std::filesystem::file_size(path);
+        std::ifstream input;
+        input.exceptions(std::ifstream::badbit);
+        input.open(path);
         _byte_vector bytes(size);
         input.read(reinterpret_cast<char*>(bytes.data()), size);
         return bytes;
@@ -459,9 +462,6 @@ using byte_vector = _byte_vector<>;
 
 } // namespace dualis
 
-#include <filesystem>
-#include <fstream>
-
 namespace dualis {
 template <class Bytes>
 requires readable_bytes<Bytes>
@@ -512,9 +512,31 @@ using big_endian = detail::_big_endian_ptrcast;
 
 template <std::integral T, class WordOrder, readable_bytes Bytes>
 requires word_order<WordOrder, T>
-auto read_integer(const Bytes& bytes, std::size_t offset) -> T
+auto read_integer(const Bytes& bytes, std::size_t offset = 0) -> T
 {
     return WordOrder::template read<T>(bytes.data() + offset);
+}
+
+template <std::default_initializable T, readable_bytes Bytes>
+auto read_raw(const Bytes& bytes, std::size_t offset = 0) -> T
+{
+    constexpr auto size = sizeof(T);
+    T result{};
+    std::memcpy(&result, bytes.data() + offset, size);
+    return result;
+}
+
+template <class T, class WordOrder, readable_bytes Bytes, class OutputIt>
+requires word_order<WordOrder, T>
+auto read_integer_sequence(OutputIt first, std::size_t count, const Bytes& bytes,
+                           std::size_t offset = 0) -> OutputIt
+{
+    for (decltype(count) i = 0; i < count; ++i)
+    {
+        *first++ = read_integer<T, WordOrder>(bytes, offset);
+        offset += sizeof(T);
+    }
+    return first;
 }
 
 } // namespace dualis
