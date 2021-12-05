@@ -1,5 +1,6 @@
 add_executable(dualis-unit-tests
   containers.cc
+  rw.cc
 )
 target_link_libraries(dualis-unit-tests
   PRIVATE

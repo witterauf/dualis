@@ -286,29 +286,19 @@ public:
 
     // Element access specific to _byte_vector.
 
-    auto span(size_type first, size_type last) -> writable_byte_span
+    auto writable_subspan(size_type first, size_type last) -> writable_byte_span
     {
         return writable_byte_span{m_data}.subspan(first, last - first);
     }
 
-    auto first(size_type count) -> writable_byte_span
-    {
-        return writable_byte_span{m_data}.first(count);
-    }
-
-    auto span(size_type first, size_type last) const -> byte_span
+    auto subspan(size_type first, size_type last) const -> byte_span
     {
         return byte_span{m_data}.subspan(first, last - first);
     }
 
-    auto first(size_type count) const -> byte_span
-    {
-        return byte_span{m_data}.first(count);
-    }
-
     auto slice(size_type first, size_type last) const -> _byte_vector
     {
-        return _byte_vector{m_data.data() + first, last - first, m_data.get_alloc()};
+        return _byte_vector(m_data.data() + first, m_data.data() + last, m_data.get_allocator());
     }
 
     // Capacity.
@@ -545,12 +535,12 @@ auto read_integer_sequence(OutputIt first, std::size_t count, const Bytes& bytes
 
 namespace dualis {
 
-template <> auto byte_swap<uint8_t>(uint8_t value) -> uint8_t
+template <> inline auto byte_swap<uint8_t>(uint8_t value) -> uint8_t
 {
     return value;
 }
 
-template <> auto byte_swap<uint16_t>(uint16_t value) -> uint16_t
+template <> inline auto byte_swap<uint16_t>(uint16_t value) -> uint16_t
 {
 #ifdef _MSC_VER
     return _byteswap_ushort(value);
@@ -559,7 +549,7 @@ template <> auto byte_swap<uint16_t>(uint16_t value) -> uint16_t
 #endif
 }
 
-template <> auto byte_swap<uint32_t>(uint32_t value) -> uint32_t
+template <> inline auto byte_swap<uint32_t>(uint32_t value) -> uint32_t
 {
 #ifdef _MSC_VER
     return _byteswap_ulong(value);
@@ -568,7 +558,7 @@ template <> auto byte_swap<uint32_t>(uint32_t value) -> uint32_t
 #endif
 }
 
-template <> auto byte_swap<uint64_t>(uint64_t value) -> uint64_t
+template <> inline auto byte_swap<uint64_t>(uint64_t value) -> uint64_t
 {
 #ifdef _MSC_VER
     return _byteswap_uint64(value);
