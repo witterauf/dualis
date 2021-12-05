@@ -9,7 +9,7 @@ SCENARIO("read_integer", "[reading]")
 
     GIVEN("a byte_vector with enough elements")
     {
-        byte_vector bv{0x10_b, 0x11_b, 0x12_b, 0x13_b, 0x10_b, 0x11_b, 0x12_b, 0x13_b};
+        byte_vector bv{0x80_b, 0x11_b, 0x12_b, 0x83_b, 0x10_b, 0x11_b, 0x12_b, 0x83_b};
         WHEN("result = read_integer<T, WordOrder>(bv, offset)")
         {
             AND_WHEN("WordOrder = little_endian")
@@ -39,9 +39,9 @@ SCENARIO("read_integer", "[reading]")
             AND_WHEN("WordOrder = big_endian")
             {
                 using WordOrder = big_endian;
-                AND_WHEN("T = uint32_t")
+                AND_WHEN("T = int32_t")
                 {
-                    using T = uint32_t;
+                    using T = int32_t;
                     AND_WHEN("offset is aligned")
                     {
                         auto const result = read_integer<T, WordOrder>(bv, 0);
@@ -51,6 +51,39 @@ SCENARIO("read_integer", "[reading]")
                                                   (std::to_integer<T>(bv[1]) << 16) +
                                                   (std::to_integer<T>(bv[2]) << 8) +
                                                   (std::to_integer<T>(bv[3]) << 0));
+                            REQUIRE(result < 0);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+SCENARIO("write_integer", "[reading]")
+{
+    using namespace dualis::literals;
+
+    GIVEN("a byte_vector with enough space")
+    {
+        byte_vector bv{0x80_b, 0x11_b, 0x12_b, 0x83_b, 0x10_b, 0x11_b, 0x12_b, 0x83_b};
+        WHEN("write_integer<T, WordOrder>(bv, value, offset)")
+        {
+            AND_WHEN("WordOrder = little_endian")
+            {
+                using WordOrder = little_endian;
+                AND_WHEN("T = int32_t")
+                {
+                    using T = int32_t;
+                    AND_WHEN("offset is aligned")
+                    {
+                        write_integer<T, WordOrder>(bv, -123, 0);
+                        THEN("value's byte are written in the correct order")
+                        {
+                            REQUIRE(-123 == (std::to_integer<T>(bv[0]) << 0) +
+                                                (std::to_integer<T>(bv[1]) << 8) +
+                                                (std::to_integer<T>(bv[2]) << 16) +
+                                                (std::to_integer<T>(bv[3]) << 24));
                         }
                     }
                 }

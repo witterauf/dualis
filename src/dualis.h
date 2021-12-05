@@ -12,11 +12,22 @@
 
 namespace dualis {
 
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Concepts
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
 // clang-format off
 template <class T>
 concept readable_bytes = requires(const T& t)
 {
     { t.data() } -> std::same_as<const std::byte*>;
+    { t.size() } -> std::unsigned_integral;
+};
+
+template <class T>
+concept writable_bytes = requires(T& t)
+{
+    { t.data() } -> std::same_as<std::byte*>;
     { t.size() } -> std::unsigned_integral;
 };
 
@@ -34,6 +45,14 @@ concept word_order = requires(const std::byte* bytes)
     { T::template read<U>(bytes) } -> std::same_as<U>;
 };
 // clang-format on
+
+} // namespace dualis
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Containers
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+namespace dualis {
 
 using writable_byte_span = std::span<std::byte>;
 using byte_span = std::span<const std::byte>;
@@ -452,7 +471,12 @@ using byte_vector = _byte_vector<>;
 
 } // namespace dualis
 
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// I/O
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
 namespace dualis {
+
 template <class Bytes>
 requires readable_bytes<Bytes>
 void save_bytes(const Bytes& bytes, const std::filesystem::path& path)
@@ -462,6 +486,10 @@ void save_bytes(const Bytes& bytes, const std::filesystem::path& path)
 }
 
 } // namespace dualis
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Byte interpretation
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
 namespace dualis {
 
@@ -477,6 +505,11 @@ public:
     {
         return *reinterpret_cast<const T*>(bytes);
     }
+
+    template <std::integral T> static void write(T value, std::byte* bytes)
+    {
+        *reinterpret_cast<T*>(bytes) = value;
+    }
 };
 
 class _big_endian_ptrcast final
@@ -484,7 +517,14 @@ class _big_endian_ptrcast final
 public:
     template <std::integral T> static auto read(const std::byte* bytes) -> T
     {
-        return ::dualis::byte_swap(*reinterpret_cast<const T*>(bytes));
+        return ::dualis::byte_swap(
+            static_cast<std::make_unsigned<T>::type>(*reinterpret_cast<const T*>(bytes)));
+    }
+
+    template <std::integral T> static void write(T value, std::byte* bytes)
+    {
+        *reinterpret_cast<T*>(bytes) =
+            ::dualis::byte_swap(static_cast<std::make_unsigned<T>::type>(value));
     }
 };
 
@@ -529,7 +569,18 @@ auto read_integer_sequence(OutputIt first, std::size_t count, const Bytes& bytes
     return first;
 }
 
+template <std::integral T, class WordOrder, std::integral U, writable_bytes Bytes>
+requires word_order<WordOrder, T>
+void write_integer(Bytes& bytes, U value, std::size_t offset = 0)
+{
+    WordOrder::template write<T>(static_cast<T>(value), bytes.data() + offset);
+}
+
 } // namespace dualis
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Utilities
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include <string>
 
