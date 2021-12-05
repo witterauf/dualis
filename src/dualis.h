@@ -40,9 +40,11 @@ concept insertable_bytes = requires(const T& t)
 };
 
 template<class T, class U>
-concept word_order = requires(const std::byte* bytes)
+concept word_order = requires(const std::byte* bytes, std::byte* writableBytes,
+                              U value)
 {
     { T::template read<U>(bytes) } -> std::same_as<U>;
+    T::template write<U>(value, writableBytes);
 };
 // clang-format on
 
@@ -575,6 +577,62 @@ void write_integer(Bytes& bytes, U value, std::size_t offset = 0)
 {
     WordOrder::template write<T>(static_cast<T>(value), bytes.data() + offset);
 }
+
+} // namespace dualis
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Streams
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+namespace dualis {
+
+class byte_reader
+{
+public:
+    byte_reader() = default;
+
+    byte_reader(byte_span bytes) noexcept(noexcept(byte_span{byte_span{}}))
+        : m_data{bytes}
+    {
+    }
+
+    auto tellg() const -> std::size_t
+    {
+        return m_offset;
+    }
+
+    void seekg(std::size_t offset)
+    {
+        m_offset = offset;
+    }
+
+    auto span() const -> byte_span
+    {
+        return m_data;
+    }
+
+    template <std::integral T, class WordOrder>
+    requires word_order<WordOrder, T>
+    auto consume_integer() -> T
+    {
+        auto const value = ::dualis::read_integer<T, WordOrder>(m_data, m_offset);
+        m_offset += sizeof(T);
+        return value;
+    }
+
+    template <class T, class WordOrder, class OutputIt>
+    requires word_order<WordOrder, T>
+    auto consume_integer_sequence(OutputIt first, std::size_t count) -> OutputIt
+    {
+        auto const after = read_integer_sequence<T, WordOrder>(first, count, m_data, m_offset);
+        m_offset += sizeof(T) * count;
+        return after;
+    }
+
+private:
+    byte_span m_data;
+    std::size_t m_offset{0};
+};
 
 } // namespace dualis
 

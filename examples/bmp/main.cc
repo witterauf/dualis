@@ -26,21 +26,20 @@ struct BitmapInfoHeader
 
 static_assert(sizeof(BitmapInfoHeader) == 40);
 
-auto readInfoHeader(dualis::byte_span bmp) -> BitmapInfoHeader
+auto readInfoHeader(byte_reader& reader) -> BitmapInfoHeader
 {
-    using namespace dualis;
     BitmapInfoHeader infoHeader;
-    infoHeader.biSize = read_integer<uint32_t, little_endian>(bmp, 0);
-    infoHeader.biWidth = read_integer<int32_t, little_endian>(bmp, 4);
-    infoHeader.biHeight = read_integer<int32_t, little_endian>(bmp, 8);
-    infoHeader.biPlanes = read_integer<uint16_t, little_endian>(bmp, 12);
-    infoHeader.biBitCount = read_integer<uint16_t, little_endian>(bmp, 14);
-    infoHeader.biCompression = read_integer<uint32_t, little_endian>(bmp, 16);
-    infoHeader.biImageSize = read_integer<uint32_t, little_endian>(bmp, 20);
-    infoHeader.biXPelsPerMeter = read_integer<int32_t, little_endian>(bmp, 24);
-    infoHeader.biYPelsPerMeter = read_integer<int32_t, little_endian>(bmp, 28);
-    infoHeader.biClrUsed = read_integer<uint32_t, little_endian>(bmp, 32);
-    infoHeader.biClrImportant = read_integer<uint32_t, little_endian>(bmp, 36);
+    infoHeader.biSize = reader.consume_integer<uint32_t, little_endian>();
+    infoHeader.biWidth = reader.consume_integer<int32_t, little_endian>();
+    infoHeader.biHeight = reader.consume_integer<int32_t, little_endian>();
+    infoHeader.biPlanes = reader.consume_integer<uint16_t, little_endian>();
+    infoHeader.biBitCount = reader.consume_integer<uint16_t, little_endian>();
+    infoHeader.biCompression = reader.consume_integer<uint32_t, little_endian>();
+    infoHeader.biImageSize = reader.consume_integer<uint32_t, little_endian>();
+    infoHeader.biXPelsPerMeter = reader.consume_integer<int32_t, little_endian>();
+    infoHeader.biYPelsPerMeter = reader.consume_integer<int32_t, little_endian>();
+    infoHeader.biClrUsed = reader.consume_integer<uint32_t, little_endian>();
+    infoHeader.biClrImportant = reader.consume_integer<uint32_t, little_endian>();
     return infoHeader;
 }
 
@@ -76,7 +75,10 @@ void printBitmapInfo(const std::filesystem::path& path)
     }
 
     auto const [size, offset] = readHeader(bmpSpan);
-    auto const infoHeaderA = readInfoHeader(bmpSpan.last(bmpSpan.size() - 14));
+
+    byte_reader reader{bmpSpan};
+    reader.seekg(14);
+    auto const infoHeaderA = readInfoHeader(reader);
     // Only works on little-endian machines! Avoid if possible.
     auto const infoHeaderB = read_raw<BitmapInfoHeader>(bmpSpan, 14);
 
@@ -91,7 +93,7 @@ void printBitmapInfo(const std::filesystem::path& path)
         auto const count =
             infoHeaderA.biClrUsed == 0 ? (1 << infoHeaderA.biBitCount) : infoHeaderA.biClrUsed;
         palette.resize(count);
-        read_integer_sequence<uint32_t, little_endian>(palette.begin(), count, bmpSpan, 54);
+        reader.consume_integer_sequence<uint32_t, little_endian>(palette.begin(), count);
     }
 
     printInfoHeader(infoHeaderA);
