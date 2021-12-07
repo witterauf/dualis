@@ -48,9 +48,9 @@ SCENARIO("read_integer", "[reading]")
                         THEN("result is correct")
                         {
                             REQUIRE(result == (std::to_integer<T>(bv[0]) << 24) +
-                                                  (std::to_integer<T>(bv[1]) << 16) +
-                                                  (std::to_integer<T>(bv[2]) << 8) +
-                                                  (std::to_integer<T>(bv[3]) << 0));
+                                                  ((std::to_integer<T>(bv[1]) & 0xff) << 16) +
+                                                  ((std::to_integer<T>(bv[2]) & 0xff) << 8) +
+                                                  ((std::to_integer<T>(bv[3]) & 0xff) << 0));
                             REQUIRE(result < 0);
                         }
                     }

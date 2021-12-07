@@ -74,8 +74,8 @@ public:
     using size_type = typename storage::size_type;
     using difference_type = typename storage::difference_type;
     using offset_type = size_type;
-    using pointer = std::allocator_traits<Allocator>::pointer;
-    using const_pointer = std::allocator_traits<Allocator>::const_pointer;
+    using pointer = typename std::allocator_traits<Allocator>::pointer;
+    using const_pointer = typename std::allocator_traits<Allocator>::const_pointer;
 
     // Constructors and destructors.
 
@@ -520,13 +520,13 @@ public:
     template <std::integral T> static auto read(const std::byte* bytes) -> T
     {
         return ::dualis::byte_swap(
-            static_cast<std::make_unsigned<T>::type>(*reinterpret_cast<const T*>(bytes)));
+            static_cast<typename std::make_unsigned<T>::type>(*reinterpret_cast<const T*>(bytes)));
     }
 
     template <std::integral T> static void write(T value, std::byte* bytes)
     {
         *reinterpret_cast<T*>(bytes) =
-            ::dualis::byte_swap(static_cast<std::make_unsigned<T>::type>(value));
+            ::dualis::byte_swap(static_cast<typename std::make_unsigned<T>::type>(value));
     }
 };
 
@@ -653,8 +653,10 @@ template <> inline auto byte_swap<uint16_t>(uint16_t value) -> uint16_t
 {
 #ifdef _MSC_VER
     return _byteswap_ushort(value);
+#elif __GNUG__
+    return __builtin_bswap16(value);
 #else
-    return (value << 8) || (value >> 8);
+    return (value << 8) | (value >> 8);
 #endif
 }
 
@@ -662,8 +664,10 @@ template <> inline auto byte_swap<uint32_t>(uint32_t value) -> uint32_t
 {
 #ifdef _MSC_VER
     return _byteswap_ulong(value);
+#elif __GNUG__
+    return __builtin_bswap32(value);
 #else
-    return (value << 24) || ((value << 8) & 0xff0000) || ((value >> 8) & 0xff00) || (value >> 24);
+    return (value << 24) | ((value << 8) & 0xff0000) | ((value >> 8) & 0xff00) | (value >> 24);
 #endif
 }
 
@@ -671,11 +675,12 @@ template <> inline auto byte_swap<uint64_t>(uint64_t value) -> uint64_t
 {
 #ifdef _MSC_VER
     return _byteswap_uint64(value);
+#elif __GNUG__
+    return __builtin_bswap64(value);
 #else
-    return (value << 56) || ((value << 40) & (0xffULL << 48)) ||
-           ((value << 24) & (0xffULL << 40)) || ((value << 8) & (0xffULL << 32)) ||
-           ((value >> 8) & (0xffULL << 24)) ||
-           ((value >> 24) & (0xffULL << 16) || ((value >> 40) & (0xffULL << 8))) || (value >> 56);
+    return (value << 56) | ((value << 40) & (0xffULL << 48)) | ((value << 24) & (0xffULL << 40)) |
+           ((value << 8) & (0xffULL << 32)) | ((value >> 8) & (0xffULL << 24)) |
+           ((value >> 24) & (0xffULL << 16) | ((value >> 40) & (0xffULL << 8))) | (value >> 56);
 #endif
 }
 
