@@ -106,3 +106,26 @@ SCENARIO("byte_vector::slice", "[byte_vector][containers]")
         }
     }
 }
+
+SCENARIO("small_byte_vector::small_byte_vector", "[small_byte_vector][containers]")
+{
+    WHEN("default-constructing a byte_vector")
+    {
+        small_byte_vector bytes;
+        THEN("its size is 0")
+        {
+            REQUIRE(bytes.size() == 0);
+        }
+        THEN("it is considered empty")
+        {
+            REQUIRE(bytes.empty());
+        }
+        THEN("its begin and end iterators are equal")
+        {
+            REQUIRE(bytes.begin() == bytes.end());
+            auto const& const_bytes = bytes;
+            REQUIRE(const_bytes.begin() == const_bytes.end());
+            REQUIRE(bytes.cbegin() == bytes.cend());
+        }
+    }
+}

@@ -471,6 +471,414 @@ constexpr void swap(_byte_vector<Alloc>& lhs, _byte_vector<Alloc>& rhs) noexcept
 
 using byte_vector = _byte_vector<>;
 
+namespace detail {
+
+// Reduces the storage required if T1 is an empty class (that is, one without member variables).
+// This is required to optimized the necessary storage if an allocator for the following
+// containers is empty.
+template <class T1, class T2, bool = std::is_empty_v<T1> && !std::is_final_v<T2>>
+class _compressed_pair final : private T1
+{
+public:
+    T2 second;
+
+    constexpr auto get_first() noexcept -> T1&
+    {
+        return *this;
+    }
+
+    constexpr auto get_first() const noexcept -> const T1&
+    {
+        return *this;
+    }
+
+    constexpr auto get_second() noexcept -> T2&
+    {
+        return second;
+    }
+
+    constexpr auto get_second() const noexcept -> const T2&
+    {
+        return second;
+    }
+};
+
+// If the first type (T1) is not empty, store both instances as members.
+template <class T1, class T2> class _compressed_pair<T1, T2, false> final
+{
+public:
+    T1 first;
+    T2 second;
+
+    constexpr auto get_first() noexcept -> T1&
+    {
+        return first;
+    }
+
+    constexpr auto get_first() const noexcept -> const T1&
+    {
+        return first;
+    }
+
+    constexpr auto get_second() noexcept -> T2&
+    {
+        return second;
+    }
+
+    constexpr auto get_second() const noexcept -> const T2&
+    {
+        return second;
+    }
+};
+
+template <class Allocator> struct _small_container
+{
+public:
+    using allocator_type = Allocator;
+    using size_type = typename allocator_type::size_type;
+
+    static constexpr size_type BufferSize = 16;
+
+    _small_container() = default;
+
+    constexpr bool is_heap_allocated() const
+    {
+        return capacity > BufferSize;
+    }
+
+    constexpr bool empty() const
+    {
+        return length == 0;
+    }
+
+    constexpr auto size() const -> size_type
+    {
+        return length;
+    }
+
+    constexpr auto data() -> std::byte*
+    {
+        return is_heap_allocated() ? bytes.heap : &bytes.local[0];
+    }
+
+    constexpr auto data() const -> const std::byte*
+    {
+        return is_heap_allocated() ? bytes.heap : &bytes.local[0];
+    }
+
+    constexpr void push_back(std::byte value, allocator_type& allocator)
+    {
+        if (length < capacity)
+        {
+            // New byte still fits, no reallocation necessary.
+            data()[length] = value;
+        }
+        else
+        {
+            // New length exceeds capacity: allocated new memory.
+            auto const new_capacity = capacity + capacity / 2;
+            auto const* new_heap =
+                std::allocator_traits<allocator_type>::allocate(allocator, new_capacity);
+            std::copy(data(), data() + length, new_heap);
+            if (is_heap_allocated())
+            {
+                std::allocator_traits<allocator_type>::deallocate(allocator, bytes.heap, capacity);
+            }
+            bytes.heap = new_heap;
+            capacity = new_capacity;
+        }
+        length += 1;
+    }
+
+    constexpr void destroy(allocator_type& allocator)
+    {
+        if (is_heap_allocated())
+        {
+            std::allocator_traits<allocator_type>::deallocate(allocator, bytes.heap, capacity);
+        }
+    }
+
+    size_type length{0};
+    size_type capacity{BufferSize};
+    union
+    {
+        std::byte local[BufferSize];
+        std::byte* heap;
+    } bytes;
+};
+
+} // namespace detail
+
+class const_byte_iterator
+{
+public:
+    using iterator_concept = std::contiguous_iterator_tag;
+    using iterator_category = std::random_access_iterator_tag;
+    using value_type = std::byte;
+    using difference_type = std::ptrdiff_t;
+    using pointer = const std::byte*;
+    using reference = const std::byte&;
+
+    constexpr const_byte_iterator() noexcept = default;
+
+    constexpr const_byte_iterator(const std::byte* pointer) noexcept
+        : m_pointer{pointer}
+    {
+    }
+
+    constexpr auto operator=(const const_byte_iterator& rhs) noexcept
+        -> const_byte_iterator& = default;
+
+    [[nodiscard]] constexpr auto operator*() const noexcept -> reference
+    {
+        return *m_pointer;
+    }
+
+    [[nodiscard]] constexpr auto operator->() const noexcept -> pointer
+    {
+        return m_pointer;
+    }
+
+    constexpr auto operator++() noexcept -> const_byte_iterator&
+    {
+        ++m_pointer;
+        return *this;
+    }
+
+    constexpr auto operator++(int) noexcept -> const_byte_iterator
+    {
+        auto const temp = *this;
+        ++*this;
+        return temp;
+    }
+
+    constexpr auto operator--() noexcept -> const_byte_iterator&
+    {
+        --m_pointer;
+        return *this;
+    }
+
+    constexpr auto operator--(int) noexcept -> const_byte_iterator
+    {
+        auto const temp = *this;
+        --*this;
+        return temp;
+    }
+
+    constexpr auto operator+=(const difference_type offset) noexcept -> const_byte_iterator&
+    {
+        m_pointer += offset;
+        return *this;
+    }
+
+    [[nodiscard]] constexpr auto operator+(const difference_type offset) noexcept
+        -> const_byte_iterator
+    {
+        auto temp = *this;
+        temp += offset;
+        return temp;
+    }
+
+    constexpr auto operator-=(const difference_type offset) noexcept -> const_byte_iterator&
+    {
+        m_pointer -= offset;
+        return *this;
+    }
+
+    [[nodiscard]] constexpr auto operator-(const difference_type offset) noexcept
+        -> const_byte_iterator
+    {
+        auto temp = *this;
+        temp -= offset;
+        return temp;
+    }
+
+    [[nodiscard]] constexpr auto operator[](const difference_type offset) const noexcept
+        -> reference
+    {
+        return m_pointer[offset];
+    }
+
+    [[nodiscard]] constexpr bool operator==(const const_byte_iterator& rhs) const noexcept
+    {
+        return m_pointer == rhs.m_pointer;
+    }
+
+    [[nodiscard]] constexpr auto operator<=>(const const_byte_iterator& rhs) const noexcept
+        -> std::strong_ordering
+    {
+        return m_pointer <=> rhs.m_pointer;
+    }
+
+private:
+    const std::byte* m_pointer{nullptr};
+};
+
+class byte_iterator : public const_byte_iterator
+{
+public:
+    using iterator_concept = std::contiguous_iterator_tag;
+    using iterator_category = std::random_access_iterator_tag;
+    using value_type = std::byte;
+    using difference_type = std::ptrdiff_t;
+    using pointer = std::byte*;
+    using reference = std::byte&;
+
+    using const_byte_iterator::const_byte_iterator;
+
+    [[nodiscard]] constexpr auto operator*() const noexcept -> reference
+    {
+        return const_cast<reference>(const_byte_iterator::operator*());
+    }
+
+    [[nodiscard]] constexpr auto operator->() const noexcept -> pointer
+    {
+        return const_cast<pointer>(const_byte_iterator::operator->());
+    }
+
+    constexpr auto operator++() noexcept -> byte_iterator&
+    {
+        const_byte_iterator::operator++();
+        return *this;
+    }
+
+    constexpr auto operator++(int) noexcept -> byte_iterator
+    {
+        auto const temp = *this;
+        const_byte_iterator::operator++();
+        return temp;
+    }
+
+    constexpr auto operator--() noexcept -> byte_iterator&
+    {
+        const_byte_iterator::operator--();
+        return *this;
+    }
+
+    constexpr auto operator--(int) noexcept -> byte_iterator
+    {
+        auto const temp = *this;
+        const_byte_iterator::operator--();
+        return temp;
+    }
+
+    constexpr auto operator+=(const difference_type offset) noexcept -> byte_iterator&
+    {
+        const_byte_iterator::operator+=(offset);
+        return *this;
+    }
+
+    [[nodiscard]] auto operator+(const difference_type offset) const noexcept -> byte_iterator
+    {
+        auto temp = *this;
+        temp += offset;
+        return temp;
+    }
+
+    constexpr auto operator-=(const difference_type offset) noexcept -> byte_iterator&
+    {
+        const_byte_iterator::operator-=(offset);
+        return *this;
+    }
+
+    [[nodiscard]] constexpr auto operator-(const difference_type offset) const noexcept
+        -> byte_iterator
+    {
+        auto temp = *this;
+        temp -= offset;
+        return temp;
+    }
+
+    [[nodiscard]] constexpr auto operator[](const difference_type offset) const noexcept
+        -> reference
+    {
+        return const_cast<reference>(const_byte_iterator::operator[](offset));
+    }
+};
+
+template <class Allocator = std::allocator<std::byte>> class _small_byte_vector
+{
+public:
+    using allocator_type = Allocator;
+    using value_type = std::byte;
+    using size_type = typename allocator_type::size_type;
+    using difference_type = typename allocator_type::difference_type;
+    using iterator = byte_iterator;
+    using const_iterator = const_byte_iterator;
+
+    constexpr _small_byte_vector() = default;
+
+    constexpr ~_small_byte_vector()
+    {
+        m_pair.get_second().destroy(m_pair.get_first());
+    }
+
+    constexpr bool empty() const
+    {
+        return m_pair.get_second().empty();
+    }
+
+    constexpr auto size() const -> size_type
+    {
+        return m_pair.get_second().size();
+    }
+
+    constexpr auto operator[](size_type pos) -> std::byte&
+    {
+        return data()[pos];
+    }
+
+    constexpr auto operator[](size_type pos) const -> std::byte
+    {
+        return data()[pos];
+    }
+
+    constexpr auto data() -> std::byte*
+    {
+        return m_pair.get_second().data();
+    }
+
+    constexpr auto data() const -> const std::byte*
+    {
+        return m_pair.get_second().data();
+    }
+
+    auto begin() -> iterator
+    {
+        return byte_iterator{data()};
+    }
+
+    auto end() -> iterator
+    {
+        return begin() + size();
+    }
+
+    auto begin() const -> const_iterator
+    {
+        return const_byte_iterator{data()};
+    }
+
+    auto end() const -> const_iterator
+    {
+        return begin() + size();
+    }
+
+    auto cbegin() const -> const_iterator
+    {
+        return const_byte_iterator{data()};
+    }
+
+    auto cend() const -> const_iterator
+    {
+        return begin() + size();
+    }
+
+private:
+    detail::_compressed_pair<allocator_type, detail::_small_container<allocator_type>> m_pair;
+};
+
+using small_byte_vector = _small_byte_vector<>;
+
 } // namespace dualis
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -542,6 +950,8 @@ using big_endian = detail::_big_endian_ptrcast;
 #error "Only architectures that allow unaligned memory access supported so far"
 #endif
 
+// Read sizeof(T) bytes from bytes and interpret it as an integer of type T using the given
+// WordOrder.
 template <std::integral T, class WordOrder, readable_bytes Bytes>
 requires word_order<WordOrder, T>
 auto read_integer(const Bytes& bytes, std::size_t offset = 0) -> T
@@ -549,6 +959,7 @@ auto read_integer(const Bytes& bytes, std::size_t offset = 0) -> T
     return WordOrder::template read<T>(bytes.data() + offset);
 }
 
+// Read sizeof(T) bytes from bytes and return them as an instance of T.
 template <std::default_initializable T, readable_bytes Bytes>
 auto read_raw(const Bytes& bytes, std::size_t offset = 0) -> T
 {
