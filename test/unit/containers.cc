@@ -2,6 +2,7 @@
 #include <dualis.h>
 
 using namespace dualis;
+using namespace dualis::literals;
 
 SCENARIO("byte_vector::byte_vector", "[byte_vector]")
 {
@@ -107,9 +108,100 @@ SCENARIO("byte_vector::slice", "[byte_vector][containers]")
     }
 }
 
+struct EachElementIs : Catch::Matchers::MatcherGenericBase
+{
+    EachElementIs(const std::byte value)
+        : m_value{value}
+    {
+    }
+
+    template <typename Range> bool match(Range const& other) const
+    {
+        for (auto const val : other)
+        {
+            if (val != m_value)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    std::string describe() const override
+    {
+        return "Each element is: 0x" + to_hex_string(m_value);
+    }
+
+private:
+    std::byte m_value;
+};
+
+template <class ByteRange> struct EqualsByteRangeMatcher : Catch::Matchers::MatcherGenericBase
+{
+    EqualsByteRangeMatcher(const ByteRange& value)
+        : m_value{value}
+    {
+    }
+
+    template <typename OtherRange> bool match(OtherRange const& other) const
+    {
+        if (m_value.size() != other.size())
+        {
+            return false;
+        }
+        auto thisBegin = m_value.begin();
+        auto otherBegin = other.begin();
+        for (; thisBegin != m_value.end(); ++thisBegin, ++otherBegin)
+        {
+            if (*thisBegin != *otherBegin)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    std::string describe() const override
+    {
+        return "Equals";
+    }
+
+private:
+    const ByteRange& m_value;
+};
+
+template <class ByteRange>
+auto EqualsByteRange(const ByteRange& bytes) -> EqualsByteRangeMatcher<ByteRange>
+{
+    return EqualsByteRangeMatcher<ByteRange>{bytes};
+}
+
+template <class ByteRange> void requireSizeN(ByteRange& bytes, const std::size_t N)
+{
+    THEN("its size is N")
+    {
+        REQUIRE(bytes.size() == N);
+    }
+    THEN("it is not considered empty")
+    {
+        REQUIRE_FALSE(bytes.empty());
+    }
+    THEN("its capacity is at least N")
+    {
+        REQUIRE(bytes.capacity() >= N);
+    }
+    THEN("its begin and end iterators are N apart")
+    {
+        REQUIRE(bytes.begin() + N == bytes.end());
+        auto const& const_bytes = bytes;
+        REQUIRE(const_bytes.begin() + N == const_bytes.end());
+        REQUIRE(bytes.cbegin() + N == bytes.cend());
+    }
+}
+
 SCENARIO("small_byte_vector::small_byte_vector", "[small_byte_vector][containers]")
 {
-    WHEN("default-constructing a small_byte_vector")
+    WHEN("this()")
     {
         small_byte_vector bytes;
         THEN("its size is 0")
@@ -126,6 +218,132 @@ SCENARIO("small_byte_vector::small_byte_vector", "[small_byte_vector][containers
             auto const& const_bytes = bytes;
             REQUIRE(const_bytes.begin() == const_bytes.end());
             REQUIRE(bytes.cbegin() == bytes.cend());
+        }
+    }
+
+    GIVEN("a size N")
+    {
+        static constexpr std::size_t N = 13;
+        WHEN("this(N)")
+        {
+            small_byte_vector bytes(N);
+            requireSizeN(bytes, N);
+        }
+        WHEN("this(N, A)")
+        {
+            constexpr static std::byte A = 123_b;
+            small_byte_vector bytes(N, A);
+
+            requireSizeN(bytes, N);
+            THEN("all its element are A")
+            {
+                REQUIRE_THAT(bytes, EachElementIs(A));
+            }
+        }
+    }
+
+    GIVEN("an initializer_list init")
+    {
+        static constexpr auto TestBytes = {0x13_b, 0x14_b, 0x15_b};
+
+        WHEN("this(init)")
+        {
+            small_byte_vector bytes{TestBytes};
+
+            THEN("this has the same elements as init")
+            {
+                REQUIRE_THAT(bytes, EqualsByteRange(TestBytes));
+            }
+        }
+    }
+
+    GIVEN("another small_byte_vector other")
+    {
+        static constexpr auto TestBytes = {0x13_b, 0x14_b, 0x15_b};
+        small_byte_vector other{TestBytes};
+
+        WHEN("this(other)")
+        {
+            small_byte_vector bytes{other};
+
+            THEN("they contain the same elements")
+            {
+                REQUIRE_THAT(bytes, EqualsByteRange(other));
+            }
+            THEN("their data pointers are different")
+            {
+                REQUIRE(bytes.data() != other.data());
+            }
+        }
+
+        WHEN("this(std::move(other))")
+        {
+            small_byte_vector bytes{std::move(other)};
+
+            THEN("this contains the same elements as other did")
+            {
+                REQUIRE_THAT(bytes, EqualsByteRange(TestBytes));
+            }
+            THEN("other is considered empty")
+            {
+                REQUIRE(other.empty());
+            }
+        }
+    }
+}
+
+#define CLASS_UNDER_TEST "small_byte_vector"
+
+SCENARIO(CLASS_UNDER_TEST ": element access", "[small_byte_vector][containers]")
+{
+    GIVEN("A non-empty " CLASS_UNDER_TEST)
+    {
+        small_byte_vector bytes{0x13_b, 0x14_b, 0x15_b};
+
+        WHEN("value = operator[](i) with i < size()")
+        {
+            THEN("value is the contained value")
+            {
+                REQUIRE(bytes[0] == 0x13_b);
+            }
+        }
+        WHEN("operator[](i) = value with i < size()")
+        {
+            bytes[0] = 0x17_b;
+            THEN("the contained value is modified")
+            {
+                REQUIRE(bytes[0] == 0x17_b);
+            }
+        }
+        WHEN("value = front()")
+        {
+            THEN("value is the first value")
+            {
+                REQUIRE(bytes.front() == bytes[0]);
+            }
+        }
+        WHEN("front() = value")
+        {
+            bytes.front() = 0x18_b;
+            THEN("the first value is modified accordingly")
+            {
+                REQUIRE(bytes[0] == 0x18_b);
+            }
+        }
+        WHEN("value = back()")
+        {
+            THEN("value is the last value")
+            {
+                REQUIRE(bytes.back() == bytes[bytes.size() - 1]);
+            }
+        }
+        WHEN("back() = value")
+        {
+            bytes.back() = 0x18_b;
+            THEN("the last value is modified accordingly")
+            {
+                REQUIRE(bytes[bytes.size() - 1] == 0x18_b);
+            }
         }
     }
 }

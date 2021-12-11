@@ -779,6 +779,38 @@ public:
         std::memcpy(data(), other.data(), other.size());
     }
 
+    constexpr _small_byte_vector(_small_byte_vector&& other)
+        : m_allocated{std::move(other.m_allocated.allocator())}
+        , m_length{other.size()}
+    {
+        m_allocated.data = other.m_allocated.data;
+        if (other.is_allocated())
+        {
+            m_data.capacity = other.m_data.capacity;
+        }
+        else
+        {
+            std::memcpy(m_data.local, other.m_data.local, size());
+        }
+
+        // Bring other into valid and empty state
+        other.m_allocated.data = nullptr;
+        other.m_length = 0;
+    }
+
+    constexpr _small_byte_vector(std::initializer_list<std::byte> init,
+                                 const Allocator& alloc = Allocator())
+        : m_allocated{alloc}
+        , m_length{init.size()}
+    {
+        construct(init.size());
+        auto* dest = data();
+        for (auto const value : init)
+        {
+            *dest++ = value;
+        }
+    }
+
     constexpr ~_small_byte_vector()
     {
         if (is_allocated())
@@ -821,6 +853,36 @@ public:
     [[nodiscard]] constexpr auto operator[](size_type pos) const -> std::byte
     {
         return data()[pos];
+    }
+
+    [[nodiscard]] constexpr auto at(size_type pos) -> std::byte&
+    {
+        return data()[pos];
+    }
+
+    [[nodiscard]] constexpr auto at(size_type pos) const -> std::byte
+    {
+        return data()[pos];
+    }
+
+    [[nodiscard]] constexpr auto front() -> std::byte&
+    {
+        return data()[0];
+    }
+
+    [[nodiscard]] constexpr auto front() const -> std::byte
+    {
+        return data()[0];
+    }
+
+    [[nodiscard]] constexpr auto back() -> std::byte&
+    {
+        return data()[size() - 1];
+    }
+
+    [[nodiscard]] constexpr auto back() const -> std::byte
+    {
+        return data()[size() - 1];
     }
 
     [[nodiscard]] constexpr auto data() -> std::byte*
@@ -1126,6 +1188,19 @@ inline auto as_string_view(byte_span bytes) -> std::string_view
 inline auto as_string(byte_span bytes) -> std::string
 {
     return std::string(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+}
+
+namespace detail {
+
+static constexpr char HexDigits[] = {'0', '1', '2', '3', '4', '5', '6', '7',
+                                     '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
+
+}
+
+inline auto to_hex_string(const std::byte value) -> std::string
+{
+    return std::string{detail::HexDigits[std::to_integer<uint8_t>(value) >> 4],
+                       detail::HexDigits[std::to_integer<uint8_t>(value) & 0xf]};
 }
 
 namespace literals {
