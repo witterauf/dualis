@@ -471,144 +471,6 @@ constexpr void swap(_byte_vector<Alloc>& lhs, _byte_vector<Alloc>& rhs) noexcept
 
 using byte_vector = _byte_vector<>;
 
-namespace detail {
-
-// Reduces the storage required if T1 is an empty class (that is, one without member variables).
-// This is required to optimized the necessary storage if an allocator for the following
-// containers is empty.
-template <class T1, class T2, bool = std::is_empty_v<T1> && !std::is_final_v<T2>>
-class _compressed_pair final : private T1
-{
-public:
-    T2 second;
-
-    constexpr auto get_first() noexcept -> T1&
-    {
-        return *this;
-    }
-
-    constexpr auto get_first() const noexcept -> const T1&
-    {
-        return *this;
-    }
-
-    constexpr auto get_second() noexcept -> T2&
-    {
-        return second;
-    }
-
-    constexpr auto get_second() const noexcept -> const T2&
-    {
-        return second;
-    }
-};
-
-// If the first type (T1) is not empty, store both instances as members.
-template <class T1, class T2> class _compressed_pair<T1, T2, false> final
-{
-public:
-    T1 first;
-    T2 second;
-
-    constexpr auto get_first() noexcept -> T1&
-    {
-        return first;
-    }
-
-    constexpr auto get_first() const noexcept -> const T1&
-    {
-        return first;
-    }
-
-    constexpr auto get_second() noexcept -> T2&
-    {
-        return second;
-    }
-
-    constexpr auto get_second() const noexcept -> const T2&
-    {
-        return second;
-    }
-};
-
-template <class Allocator> struct _small_container
-{
-public:
-    using allocator_type = Allocator;
-    using size_type = typename allocator_type::size_type;
-
-    static constexpr size_type BufferSize = 16;
-
-    _small_container() = default;
-
-    constexpr bool is_heap_allocated() const
-    {
-        return capacity > BufferSize;
-    }
-
-    constexpr bool empty() const
-    {
-        return length == 0;
-    }
-
-    constexpr auto size() const -> size_type
-    {
-        return length;
-    }
-
-    constexpr auto data() -> std::byte*
-    {
-        return is_heap_allocated() ? bytes.heap : &bytes.local[0];
-    }
-
-    constexpr auto data() const -> const std::byte*
-    {
-        return is_heap_allocated() ? bytes.heap : &bytes.local[0];
-    }
-
-    constexpr void push_back(std::byte value, allocator_type& allocator)
-    {
-        if (length < capacity)
-        {
-            // New byte still fits, no reallocation necessary.
-            data()[length] = value;
-        }
-        else
-        {
-            // New length exceeds capacity: allocated new memory.
-            auto const new_capacity = capacity + capacity / 2;
-            auto const* new_heap =
-                std::allocator_traits<allocator_type>::allocate(allocator, new_capacity);
-            std::copy(data(), data() + length, new_heap);
-            if (is_heap_allocated())
-            {
-                std::allocator_traits<allocator_type>::deallocate(allocator, bytes.heap, capacity);
-            }
-            bytes.heap = new_heap;
-            capacity = new_capacity;
-        }
-        length += 1;
-    }
-
-    constexpr void destroy(allocator_type& allocator)
-    {
-        if (is_heap_allocated())
-        {
-            std::allocator_traits<allocator_type>::deallocate(allocator, bytes.heap, capacity);
-        }
-    }
-
-    size_type length{0};
-    size_type capacity{BufferSize};
-    union
-    {
-        std::byte local[BufferSize];
-        std::byte* heap;
-    } bytes;
-};
-
-} // namespace detail
-
 class const_byte_iterator
 {
 public:
@@ -796,85 +658,246 @@ public:
     }
 };
 
+namespace detail {
+
+// Empty base class optimization: Reduces the storage required if Alloc is an empty class (that is,
+// one without member variables). This is required to optimized the necessary storage if an
+// allocator for the following containers is empty.
+template <class Alloc, class T, bool = std::is_empty_v<Alloc> && !std::is_final_v<T>>
+class _allocator_hider final : private Alloc
+{
+public:
+    T data{nullptr};
+
+    constexpr _allocator_hider(const Alloc& alloc)
+        : Alloc{alloc}
+    {
+    }
+
+    constexpr auto allocator() noexcept -> Alloc&
+    {
+        return *this;
+    }
+
+    constexpr auto allocator() const noexcept -> const Alloc&
+    {
+        return *this;
+    }
+};
+
+// If the first type (Alloc) is not empty, store both instances as members.
+template <class Alloc, class T> class _allocator_hider<Alloc, T, false> final
+{
+public:
+    T data{nullptr};
+
+    constexpr _allocator_hider(const Alloc& alloc)
+        : m_allocator{alloc}
+    {
+    }
+
+    constexpr auto allocator() noexcept -> Alloc&
+    {
+        return m_allocator;
+    }
+
+    constexpr auto allocator() const noexcept -> const Alloc&
+    {
+        return m_allocator;
+    }
+
+private:
+    Alloc m_allocator;
+};
+
+} // namespace detail
+
 template <class Allocator = std::allocator<std::byte>> class _small_byte_vector
 {
 public:
     using allocator_type = Allocator;
     using value_type = std::byte;
+    using pointer = std::byte*;
     using size_type = typename allocator_type::size_type;
     using difference_type = typename allocator_type::difference_type;
     using iterator = byte_iterator;
     using const_iterator = const_byte_iterator;
+    using allocator_traits = std::allocator_traits<allocator_type>;
 
-    constexpr _small_byte_vector() = default;
+    constexpr static size_type BufferSize = 16;
+
+    constexpr _small_byte_vector() noexcept(noexcept(Allocator{}))
+        : m_allocated{Allocator{}}
+    {
+    }
+
+    constexpr explicit _small_byte_vector(const Allocator& alloc) noexcept
+        : m_allocated{alloc}
+    {
+    }
+
+    constexpr _small_byte_vector(const size_type count, const value_type& value,
+                                 const Allocator& alloc = Allocator{})
+        : m_allocated{alloc}
+        , m_length{count}
+    {
+        construct(count);
+        std::memset(data(), std::to_integer<uint8_t>(value), count);
+    }
+
+    constexpr _small_byte_vector(size_type count, const Allocator& alloc = Allocator{})
+        : m_allocated{alloc}
+        , m_length{count}
+    {
+        construct(count);
+    }
+
+    constexpr _small_byte_vector(const _small_byte_vector& other)
+        : m_allocated{allocator_traits::select_on_container_copy_construction(
+              other.get_allocator())}
+        , m_length{other.size()}
+    {
+        if (other.is_allocated())
+        {
+            m_allocated.data =
+                allocator_traits::allocate(m_allocated.allocator(), other.capacity());
+            m_data.capacity = other.capacity();
+        }
+        std::memcpy(data(), other.data(), other.size());
+    }
+
+    constexpr _small_byte_vector(const _small_byte_vector& other, const Allocator& alloc)
+        : m_allocated{alloc}
+        , m_length{other.size()}
+    {
+        if (other.is_allocated())
+        {
+            m_allocated.data =
+                allocator_traits::allocate(m_allocated.allocator(), other.capacity());
+            m_data.capacity = other.capacity();
+        }
+        std::memcpy(data(), other.data(), other.size());
+    }
 
     constexpr ~_small_byte_vector()
     {
-        m_pair.get_second().destroy(m_pair.get_first());
+        if (is_allocated())
+        {
+            allocator_traits::deallocate(m_allocated.allocator(), m_allocated.data,
+                                         m_data.capacity);
+        }
     }
 
-    constexpr bool empty() const
+    constexpr auto get_allocator() const noexcept -> allocator_type
     {
-        return m_pair.get_second().empty();
+        return m_allocated.allocator();
     }
 
-    constexpr auto size() const -> size_type
+    [[nodiscard]] constexpr bool empty() const
     {
-        return m_pair.get_second().size();
+        return m_length == 0;
     }
 
-    constexpr auto operator[](size_type pos) -> std::byte&
+    [[nodiscard]] constexpr auto size() const -> size_type
+    {
+        return m_length;
+    }
+
+    [[nodiscard]] constexpr auto max_size() const -> size_type
+    {
+        return allocator_traits::max_size(get_allocator());
+    }
+
+    [[nodiscard]] constexpr auto capacity() const noexcept -> size_type
+    {
+        return is_allocated() ? m_data.capacity : BufferSize;
+    }
+
+    [[nodiscard]] constexpr auto operator[](size_type pos) -> std::byte&
     {
         return data()[pos];
     }
 
-    constexpr auto operator[](size_type pos) const -> std::byte
+    [[nodiscard]] constexpr auto operator[](size_type pos) const -> std::byte
     {
         return data()[pos];
     }
 
-    constexpr auto data() -> std::byte*
+    [[nodiscard]] constexpr auto data() -> std::byte*
     {
-        return m_pair.get_second().data();
+        if (is_allocated())
+        {
+            return m_allocated.data;
+        }
+        else
+        {
+            return m_data.local;
+        }
     }
 
-    constexpr auto data() const -> const std::byte*
+    [[nodiscard]] constexpr auto data() const -> const std::byte*
     {
-        return m_pair.get_second().data();
+        return const_cast<_small_byte_vector&>(*this).data();
     }
 
-    auto begin() -> iterator
+    [[nodiscard]] constexpr auto begin() -> iterator
     {
         return byte_iterator{data()};
     }
 
-    auto end() -> iterator
+    [[nodiscard]] constexpr auto end() -> iterator
     {
         return begin() + size();
     }
 
-    auto begin() const -> const_iterator
+    [[nodiscard]] constexpr auto begin() const -> const_iterator
     {
         return const_byte_iterator{data()};
     }
 
-    auto end() const -> const_iterator
+    [[nodiscard]] constexpr auto end() const -> const_iterator
     {
         return begin() + size();
     }
 
-    auto cbegin() const -> const_iterator
+    [[nodiscard]] constexpr auto cbegin() const -> const_iterator
     {
         return const_byte_iterator{data()};
     }
 
-    auto cend() const -> const_iterator
+    [[nodiscard]] constexpr auto cend() const -> const_iterator
     {
         return begin() + size();
     }
 
 private:
-    detail::_compressed_pair<allocator_type, detail::_small_container<allocator_type>> m_pair;
+    [[nodiscard]] constexpr bool is_allocated() const
+    {
+        if constexpr (BufferSize > 0)
+        {
+            return m_allocated.data != nullptr;
+        }
+        else
+        {
+            return true;
+        }
+    }
+
+    constexpr void construct(const size_type size)
+    {
+        if (size > BufferSize)
+        {
+            m_allocated.data = allocator_traits::allocate(m_allocated.allocator(), size);
+        }
+    }
+
+    detail::_allocator_hider<allocator_type, pointer> m_allocated;
+    size_type m_length{0};
+    union
+    {
+        std::byte local[BufferSize];
+        size_type capacity;
+    } m_data;
 };
 
 using small_byte_vector = _small_byte_vector<>;

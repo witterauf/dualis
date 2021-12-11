@@ -109,7 +109,7 @@ SCENARIO("byte_vector::slice", "[byte_vector][containers]")
 
 SCENARIO("small_byte_vector::small_byte_vector", "[small_byte_vector][containers]")
 {
-    WHEN("default-constructing a byte_vector")
+    WHEN("default-constructing a small_byte_vector")
     {
         small_byte_vector bytes;
         THEN("its size is 0")
