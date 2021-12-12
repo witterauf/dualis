@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <initializer_list>
+#include <iterator>
 #include <span>
 #include <vector>
 
@@ -706,6 +707,16 @@ public:
         return m_allocator;
     }
 
+    constexpr void assign(const Alloc& allocator)
+    {
+        m_allocator = allocator;
+    }
+
+    constexpr void assign(Alloc&& allocator)
+    {
+        m_allocator = std::move(allocator);
+    }
+
 private:
     Alloc m_allocator;
 };
@@ -716,13 +727,15 @@ template <class Allocator = std::allocator<std::byte>> class _small_byte_vector
 {
 public:
     using allocator_type = Allocator;
+    using allocator_traits = std::allocator_traits<allocator_type>;
     using value_type = std::byte;
     using pointer = std::byte*;
     using size_type = typename allocator_type::size_type;
     using difference_type = typename allocator_type::difference_type;
     using iterator = byte_iterator;
     using const_iterator = const_byte_iterator;
-    using allocator_traits = std::allocator_traits<allocator_type>;
+    using reverse_iterator = std::reverse_iterator<iterator>;
+    using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
     constexpr static size_type BufferSize = 16;
 
@@ -820,6 +833,98 @@ public:
         }
     }
 
+    constexpr auto operator=(const _small_byte_vector& rhs) -> _small_byte_vector&
+    {
+        if (this != std::addressof(rhs))
+        {
+            if constexpr (allocator_traits::propagate_on_container_copy_assignment::value)
+            {
+                if constexpr (allocator_traits::is_always_equal::value)
+                {
+                    // Doesn't matter if copy of allocator deallocates this instance's allocation.
+                    m_allocated.assign(rhs.m_allocated.allocator());
+                    return assign(rhs.data(), rhs.size());
+                }
+                else
+                {
+                    if (rhs.size() > capacity())
+                    {
+                        _destroy();
+                        m_allocated.assign(rhs.m_allocated.allocator());
+                        m_allocated.data =
+                            allocator_traits::allocate(m_allocated.allocator(), rhs.capacity());
+                        m_data.capacity = rhs.capacity();
+                    }
+                    else
+                    {
+                        m_allocated.assign(rhs.m_allocated.allocator());
+                    }
+                    std::memcpy(data(), rhs.data(), rhs.size());
+                    m_length = rhs.size();
+                }
+            }
+            else
+            {
+                return assign(rhs.data(), rhs.size());
+            }
+        }
+        return *this;
+    }
+
+    constexpr auto assign(const std::byte* bytes, const size_type count) -> _small_byte_vector&
+    {
+        if (count > capacity())
+        {
+            _destroy();
+            // This if is only entered if allocation is actually necessary.
+            // (Since the minimum capacity is BufferSize.)
+            auto const new_capacity = count + count / 2;
+            m_allocated.data = allocator_traits::allocate(m_allocated.allocator(), new_capacity);
+            m_data.capacity = new_capacity;
+        }
+        std::memcpy(data(), bytes, count);
+        m_length = count;
+        return *this;
+    }
+
+    constexpr auto operator=(_small_byte_vector&& rhs) -> _small_byte_vector&
+    {
+        if (this != std::addressof(rhs))
+        {
+            _destroy();
+
+            if constexpr (allocator_traits::is_always_equal::value)
+            {
+                // No need to move, allocators are considered equal anyways.
+                _take_contents(std::move(rhs));
+            }
+            else if constexpr (allocator_traits::propagate_on_container_move_assignment::value)
+            {
+                // Only need to move allocator if they are not considered equal.
+                // (Equality means they can interchangeably allocate/deallocate memory.)
+                if (m_allocated.allocator() != rhs.m_allocated.allocation())
+                {
+                    m_allocated.assign(std::move(rhs.m_allocated.allocator()));
+                }
+                _take_contents(std::move(rhs));
+            }
+            else
+            {
+                if (m_allocated.allocator() == rhs.m_allocated.allocator())
+                {
+                    _take_contents(std::move(rhs));
+                }
+                else
+                {
+                    // Allocator should not be moved, so we need to use the instance already in this
+                    // object. Since they are not considered equal, the data must be copied.
+                    return assign(rhs.data(), rhs.size());
+                }
+            }
+        }
+        return *this;
+    }
+
     constexpr auto get_allocator() const noexcept -> allocator_type
     {
         return m_allocated.allocator();
@@ -914,12 +1019,12 @@ public:
 
     [[nodiscard]] constexpr auto begin() const -> const_iterator
     {
-        return const_byte_iterator{data()};
+        return cbegin();
     }
 
     [[nodiscard]] constexpr auto end() const -> const_iterator
     {
-        return begin() + size();
+        return cend();
     }
 
     [[nodiscard]] constexpr auto cbegin() const -> const_iterator
@@ -930,6 +1035,62 @@ public:
     [[nodiscard]] constexpr auto cend() const -> const_iterator
     {
         return begin() + size();
+    }
+
+    [[nodiscard]] constexpr auto rbegin() -> reverse_iterator
+    {
+        return reverse_iterator{end()};
+    }
+
+    [[nodiscard]] constexpr auto rend() -> reverse_iterator
+    {
+        return reverse_iterator{begin()};
+    }
+
+    [[nodiscard]] constexpr auto rbegin() const -> const_reverse_iterator
+    {
+        return crbegin();
+    }
+
+    [[nodiscard]] constexpr auto rend() const -> const_reverse_iterator
+    {
+        return crend();
+    }
+
+    [[nodiscard]] constexpr auto crbegin() const -> const_reverse_iterator
+    {
+        return const_reverse_iterator{cend()};
+    }
+
+    [[nodiscard]] constexpr auto crend() const -> const_reverse_iterator
+    {
+        return const_reverse_iterator{cbegin()};
+    }
+
+    [[nodiscard]] constexpr auto operator==(const _small_byte_vector& rhs) const noexcept
+    {
+        if (size() != rhs.size())
+        {
+            return false;
+        }
+        else
+        {
+            return std::memcmp(data(), rhs.data(), size()) == 0;
+        }
+    }
+
+    [[nodiscard]] constexpr auto operator<=>(const _small_byte_vector& rhs) const noexcept
+        -> std::strong_ordering
+    {
+        auto const lexicographic = std::memcmp(data(), rhs.data(), std::min(size(), rhs.size()));
+        if (lexicographic != 0)
+        {
+            return lexicographic > 0 ? std::strong_ordering::greater : std::strong_ordering::less;
+        }
+        else
+        {
+            return size() <=> rhs.size();
+        }
     }
 
 private:
@@ -950,6 +1111,34 @@ private:
         if (size > BufferSize)
         {
             m_allocated.data = allocator_traits::allocate(m_allocated.allocator(), size);
+        }
+    }
+
+    constexpr void _take_contents(_small_byte_vector&& rhs)
+    {
+        // Expects(m_allocated.allocator() == rhs.m_allocated.allocator())
+        m_length = rhs.m_length;
+        if (rhs.is_allocated())
+        {
+            m_allocated.data = rhs.m_allocated.data;
+            m_data.capacity = rhs.capacity();
+        }
+        else
+        {
+            m_allocated.data = nullptr;
+            std::memcpy(m_data.local, rhs.m_data.local, rhs.size());
+        }
+        rhs.m_allocated.data = nullptr;
+        rhs.m_length = 0;
+        rhs.m_data.capacity = BufferSize;
+    }
+
+    constexpr void _destroy()
+    {
+        if (is_allocated())
+        {
+            allocator_traits::deallocate(m_allocated.allocator(), m_allocated.data,
+                                         m_data.capacity);
         }
     }
 

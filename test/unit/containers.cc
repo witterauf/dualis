@@ -347,3 +347,99 @@ SCENARIO(CLASS_UNDER_TEST ": element access", "[small_byte_vector][containers]")
         }
     }
 }
+
+SCENARIO(CLASS_UNDER_TEST ": iterating", "[" CLASS_UNDER_TEST "][containers]")
+{
+    GIVEN("A non-empty " CLASS_UNDER_TEST)
+    {
+        small_byte_vector bytes{0x13_b, 0x14_b, 0x15_b};
+
+        WHEN("value = *begin()")
+        {
+            auto const value = *bytes.begin();
+            THEN("value is the first element")
+            {
+                REQUIRE(value == bytes.front());
+            }
+        }
+        WHEN("value = *cbegin()")
+        {
+            auto const value = *bytes.cbegin();
+            THEN("value is the first element")
+            {
+                REQUIRE(value == bytes.front());
+            }
+        }
+        WHEN("value = *rbegin()")
+        {
+            auto const value = *bytes.rbegin();
+            THEN("value is the last element")
+            {
+                REQUIRE(value == bytes.back());
+            }
+        }
+        WHEN("value = *--end()")
+        {
+            auto const value = *--bytes.end();
+            THEN("value is the last element")
+            {
+                REQUIRE(value == bytes.back());
+            }
+        }
+        WHEN("value = *--cend()")
+        {
+            auto const value = *--bytes.cend();
+            THEN("value is the last element")
+            {
+                REQUIRE(value == bytes.back());
+            }
+        }
+        WHEN("value = *--rend()")
+        {
+            auto const value = *--bytes.rend();
+            THEN("value is the first element")
+            {
+                REQUIRE(value == bytes.front());
+            }
+        }
+    }
+}
+
+SCENARIO(CLASS_UNDER_TEST ": assignment", "[" CLASS_UNDER_TEST "][containers]")
+{
+    GIVEN("a non-empty " CLASS_UNDER_TEST " A (allocator is_always_equal)")
+    {
+        small_byte_vector A{0x13_b, 0x14_b, 0x15_b};
+
+        AND_GIVEN("another non-empty " CLASS_UNDER_TEST " B")
+        {
+            small_byte_vector B{0x16_b, 0x17_b, 0x18_b};
+
+            WHEN("A = B")
+            {
+                A = B;
+                THEN("the two compare equal")
+                {
+                    REQUIRE(A == B);
+                }
+                THEN("the data pointers are different")
+                {
+                    REQUIRE(A.data() != B.data());
+                }
+            }
+            WHEN("A = std::move(B)")
+            {
+                small_byte_vector old_B{0x16_b, 0x17_b, 0x18_b};
+                A = std::move(B);
+                THEN("A has the contents of B")
+                {
+                    REQUIRE(A == old_B);
+                }
+                THEN("B is empty")
+                {
+                    REQUIRE(B.empty());
+                }
+            }
+        }
+    }
+}
