@@ -950,6 +950,34 @@ public:
         return is_allocated() ? m_data.capacity : BufferSize;
     }
 
+    constexpr void reserve(size_type new_cap)
+    {
+        if (new_cap >= max_size())
+        {
+            throw std::length_error{"new capacity exceeds max_size"};
+        }
+        if (new_cap > capacity()) // necessarily > BufferSize then
+        {
+            auto* new_data = allocator_traits::allocate(m_allocated.allocator(), new_cap);
+            std::memcpy(new_data, m_data.local, m_length);
+            allocator_traits::deallocate(m_allocated.allocator(), m_data.local, m_data.capacity);
+            m_data.local = new_data;
+            m_data.capacity = new_cap;
+        }
+    }
+
+    constexpr void shrink_to_fit()
+    {
+        if (capacity() > size() && capacity() > BufferSize())
+        {
+            auto* new_data = allocator_traits::allocate(m_allocated.allocator(), size());
+            std::memcpy(new_data, m_data.local, m_length);
+            allocator_traits::deallocate(m_allocated.allocator(), m_data.local, m_data.capacity);
+            m_data.local = new_data;
+            m_data.capacity = size();
+        }
+    }
+
     [[nodiscard]] constexpr auto operator[](size_type pos) -> std::byte&
     {
         return data()[pos];
@@ -1007,62 +1035,62 @@ public:
         return const_cast<_small_byte_vector&>(*this).data();
     }
 
-    [[nodiscard]] constexpr auto begin() -> iterator
+    [[nodiscard]] constexpr auto begin() noexcept -> iterator
     {
         return byte_iterator{data()};
     }
 
-    [[nodiscard]] constexpr auto end() -> iterator
+    [[nodiscard]] constexpr auto end() noexcept -> iterator
     {
         return begin() + size();
     }
 
-    [[nodiscard]] constexpr auto begin() const -> const_iterator
+    [[nodiscard]] constexpr auto begin() const noexcept -> const_iterator
     {
         return cbegin();
     }
 
-    [[nodiscard]] constexpr auto end() const -> const_iterator
+    [[nodiscard]] constexpr auto end() const noexcept -> const_iterator
     {
         return cend();
     }
 
-    [[nodiscard]] constexpr auto cbegin() const -> const_iterator
+    [[nodiscard]] constexpr auto cbegin() const noexcept -> const_iterator
     {
         return const_byte_iterator{data()};
     }
 
-    [[nodiscard]] constexpr auto cend() const -> const_iterator
+    [[nodiscard]] constexpr auto cend() const noexcept -> const_iterator
     {
         return begin() + size();
     }
 
-    [[nodiscard]] constexpr auto rbegin() -> reverse_iterator
+    [[nodiscard]] constexpr auto rbegin() noexcept -> reverse_iterator
     {
         return reverse_iterator{end()};
     }
 
-    [[nodiscard]] constexpr auto rend() -> reverse_iterator
+    [[nodiscard]] constexpr auto rend() noexcept -> reverse_iterator
     {
         return reverse_iterator{begin()};
     }
 
-    [[nodiscard]] constexpr auto rbegin() const -> const_reverse_iterator
+    [[nodiscard]] constexpr auto rbegin() const noexcept -> const_reverse_iterator
     {
         return crbegin();
     }
 
-    [[nodiscard]] constexpr auto rend() const -> const_reverse_iterator
+    [[nodiscard]] constexpr auto rend() const noexcept -> const_reverse_iterator
     {
         return crend();
     }
 
-    [[nodiscard]] constexpr auto crbegin() const -> const_reverse_iterator
+    [[nodiscard]] constexpr auto crbegin() const noexcept -> const_reverse_iterator
     {
         return const_reverse_iterator{cend()};
     }
 
-    [[nodiscard]] constexpr auto crend() const -> const_reverse_iterator
+    [[nodiscard]] constexpr auto crend() const noexcept -> const_reverse_iterator
     {
         return const_reverse_iterator{cbegin()};
     }
@@ -1077,6 +1105,81 @@ public:
         {
             return std::memcmp(data(), rhs.data(), size()) == 0;
         }
+    }
+
+    constexpr void clear() noexcept
+    {
+        // capacity (and thus allocation) is left unchanged
+        m_length = 0;
+    }
+
+    constexpr auto insert(size_type index, size_type count, std::byte value) -> _small_byte_vector&
+    {
+        _insert(index, count, [count, value](std::byte* data) {
+            std::memset(data, std::to_integer<int>(value), count);
+        });
+        return *this;
+    }
+
+    constexpr auto insert(size_type index, const std::byte* bytes, size_type count)
+        -> _small_byte_vector&
+    {
+        _insert(index, count, [bytes, count](std::byte* data) { std::memcpy(data, bytes, count); });
+        return *this;
+    }
+
+    template <readable_bytes Bytes>
+    constexpr auto insert(size_type index, const Bytes& bytes) -> _small_byte_vector&
+    {
+        _insert(index, bytes.size(),
+                [&bytes](std::byte* data) { std::memcpy(data, bytes.data(), bytes.size()); });
+        return *this;
+    }
+
+    constexpr auto insert(const_iterator pos, std::byte value) -> iterator
+    {
+        auto const index = pos - cbegin();
+        insert(index, 1, value);
+        return begin() + index;
+    }
+
+    constexpr auto insert(const_iterator pos, size_type count, std::byte value) -> iterator
+    {
+        auto const index = pos - cbegin();
+        insert(index, count, value);
+        return begin() + index;
+    }
+
+    template <std::contiguous_iterator InputIt>
+    constexpr auto insert(const_iterator pos, InputIt first, InputIt last) -> iterator
+    {
+        const std::byte* bytes = std::to_address(first);
+        auto const count = last - first;
+        auto const index = pos - cbegin();
+        insert(index, bytes, count);
+        return begin() + index;
+    }
+
+    template <std::input_iterator InputIt>
+    constexpr auto insert(const_iterator pos, InputIt first, InputIt last) -> iterator
+    {
+        auto const index = pos - cbegin();
+        while (first != last)
+        {
+            insert(pos++, *first);
+        }
+        return begin() + index;
+    }
+
+    constexpr auto insert(const_iterator pos, std::initializer_list<std::byte> ilist) -> iterator
+    {
+        reserve(size() + ilist.size());
+        return insert(pos, ilist.begin(), ilist.end());
+    }
+
+    [[nodiscard]] constexpr auto operator!=(const _small_bytevector& rhs) const noexcept
+    {
+        return !this->operator==(rhs);
     }
 
     [[nodiscard]] constexpr auto operator<=>(const _small_byte_vector& rhs) const noexcept
@@ -1139,6 +1242,26 @@ private:
         {
             allocator_traits::deallocate(m_allocated.allocator(), m_allocated.data,
                                          m_data.capacity);
+        }
+    }
+
+    template <class Inserter>
+    constexpr void _insert(size_type index, size_type count, Inserter inserter)
+    {
+        if (size() + count > capacity()) // necessarily requires allocation
+        {
+            // TODO: compute new capacity to have spare space
+            auto* new_data = allocator_traits::allocate(m_allocated.allocator(), size() + count);
+            std::memcpy(new_data, m_allocated.data, index);
+            inserter(new_data + index);
+            std::memcpy(new_data + index + count, m_allocated.data + index, size() - index);
+            allocator_traits::deallocate(m_allocated.allocator(), m_allocated.data, capacity());
+        }
+        else
+        {
+            std::memcpy(data() + index + count, data() + index, count);
+            inserter(data() + index);
+            std::memcpy(data() + index + count, data() + index, size() - index);
         }
     }
 

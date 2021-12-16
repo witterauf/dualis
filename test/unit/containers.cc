@@ -409,6 +409,8 @@ SCENARIO(CLASS_UNDER_TEST ": assignment", "[" CLASS_UNDER_TEST "][containers]")
 {
     GIVEN("a non-empty " CLASS_UNDER_TEST " A (allocator is_always_equal)")
     {
+        static_assert(small_byte_vector::allocator_traits::is_always_equal::value);
+
         small_byte_vector A{0x13_b, 0x14_b, 0x15_b};
 
         AND_GIVEN("another non-empty " CLASS_UNDER_TEST " B")
