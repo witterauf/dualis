@@ -445,3 +445,71 @@ SCENARIO(CLASS_UNDER_TEST ": assignment", "[" CLASS_UNDER_TEST "][containers]")
         }
     }
 }
+
+SCENARIO(CLASS_UNDER_TEST ": insertion", "[" CLASS_UNDER_TEST "][containers]")
+{
+    GIVEN("a " CLASS_UNDER_TEST " A with at least 2 elements")
+    {
+        small_byte_vector test{0x15_b, 0x16_b};
+
+        WHEN("insert(pos, count, value)")
+        {
+            AND_WHEN("pos is in the middle")
+            {
+                test.insert(1, 1, 0x33_b);
+                THEN("A.size() increases by count")
+                {
+                    REQUIRE(test.size() == 3);
+                }
+                THEN("A[pos] == value")
+                {
+                    REQUIRE(test[1] == 0x33_b);
+                }
+            }
+            AND_WHEN("pos is 0")
+            {
+                test.insert(0, 1, 0x33_b);
+                THEN("A[pos] == value")
+                {
+                    REQUIRE(test[0] == 0x33_b);
+                }
+            }
+            AND_WHEN("pos is A.size()-1")
+            {
+                auto const pos = test.size() - 1;
+                test.insert(pos, 1, 0x33_b);
+                THEN("A[pos] == value")
+                {
+                    REQUIRE(test[pos] == 0x33_b);
+                }
+            }
+        }
+        WHEN("insert(pos_iter, value)")
+        {
+            AND_WHEN("pos_iter == A.begin()")
+            {
+                test.insert(test.begin(), 0x34_b);
+                THEN("A.size() increases by 1")
+                {
+                    REQUIRE(test.size() == 3);
+                }
+                THEN("A.front() == value")
+                {
+                    REQUIRE(test.front() == 0x34_b);
+                }
+            }
+            AND_WHEN("pos_iter == A.end()")
+            {
+                test.insert(test.end(), 0x34_b);
+                THEN("A.size() increases by 1")
+                {
+                    REQUIRE(test.size() == 3);
+                }
+                THEN("A.back() == value")
+                {
+                    REQUIRE(test.back() == 0x34_b);
+                }
+            }
+        }
+    }
+}

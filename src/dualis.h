@@ -556,6 +556,11 @@ public:
         return temp;
     }
 
+    [[nodiscard]] constexpr auto operator-(const_byte_iterator rhs) const -> difference_type
+    {
+        return m_pointer - rhs.m_pointer;
+    }
+
     [[nodiscard]] constexpr auto operator[](const difference_type offset) const noexcept
         -> reference
     {
@@ -652,6 +657,8 @@ public:
         return temp;
     }
 
+    using const_byte_iterator::operator-;
+
     [[nodiscard]] constexpr auto operator[](const difference_type offset) const noexcept
         -> reference
     {
@@ -737,7 +744,8 @@ public:
     using reverse_iterator = std::reverse_iterator<iterator>;
     using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
-    constexpr static size_type BufferSize = 16;
+    static constexpr size_type BufferSize = 16;
+    static constexpr auto npos{static_cast<size_type>(-1)};
 
     constexpr _small_byte_vector() noexcept(noexcept(Allocator{}))
         : m_allocated{Allocator{}}
@@ -1095,18 +1103,6 @@ public:
         return const_reverse_iterator{cbegin()};
     }
 
-    [[nodiscard]] constexpr auto operator==(const _small_byte_vector& rhs) const noexcept
-    {
-        if (size() != rhs.size())
-        {
-            return false;
-        }
-        else
-        {
-            return std::memcmp(data(), rhs.data(), size()) == 0;
-        }
-    }
-
     constexpr void clear() noexcept
     {
         // capacity (and thus allocation) is left unchanged
@@ -1177,7 +1173,42 @@ public:
         return insert(pos, ilist.begin(), ilist.end());
     }
 
-    [[nodiscard]] constexpr auto operator!=(const _small_bytevector& rhs) const noexcept
+    constexpr auto erase(size_type index = 0, size_type count = npos) -> _small_byte_vector&
+    {
+        count = count == npos ? size() - index : count;
+        std::memcpy(data() + index + count, data() + index, count);
+        m_length -= count;
+        return *this;
+    }
+
+    constexpr auto erase(const_iterator position) -> iterator
+    {
+        auto const index = position - cbegin();
+        erase(index, 1);
+        return begin() + index;
+    }
+
+    constexpr auto erase(const_iterator first, const_iterator last) -> iterator
+    {
+        auto const index = first - cbegin();
+        auto const count = last - first;
+        erase(index, count);
+        return begin() + index;
+    }
+
+    [[nodiscard]] constexpr bool operator==(const _small_byte_vector& rhs) const noexcept
+    {
+        if (size() != rhs.size())
+        {
+            return false;
+        }
+        else
+        {
+            return std::memcmp(data(), rhs.data(), size()) == 0;
+        }
+    }
+
+    [[nodiscard]] constexpr bool operator!=(const _small_byte_vector& rhs) const noexcept
     {
         return !this->operator==(rhs);
     }
@@ -1250,7 +1281,8 @@ private:
     {
         if (size() + count > capacity()) // necessarily requires allocation
         {
-            // TODO: compute new capacity to have spare space
+            auto const new_capacity =
+                _compute_spare_capacity(size() + count, m_data.capacity, max_size());
             auto* new_data = allocator_traits::allocate(m_allocated.allocator(), size() + count);
             std::memcpy(new_data, m_allocated.data, index);
             inserter(new_data + index);
@@ -1263,6 +1295,12 @@ private:
             inserter(data() + index);
             std::memcpy(data() + index + count, data() + index, size() - index);
         }
+        m_length = size() + count;
+    }
+
+    static constexpr auto _compute_spare_capacity(size_type requested, size_type old, size_type max)
+    {
+        return std::min(std::max(requested, old + old / 2), max);
     }
 
     detail::_allocator_hider<allocator_type, pointer> m_allocated;
