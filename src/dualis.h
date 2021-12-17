@@ -691,6 +691,12 @@ public:
     {
         return *this;
     }
+
+    constexpr void swap(_allocator_hider& other) noexcept
+    {
+        Alloc::swap(other);
+        std::swap(data, other.data);
+    }
 };
 
 // If the first type (Alloc) is not empty, store both instances as members.
@@ -722,6 +728,12 @@ public:
     constexpr void assign(Alloc&& allocator)
     {
         m_allocator = std::move(allocator);
+    }
+
+    constexpr void swap(_allocator_hider& other) noexcept
+    {
+        std::swap(data, other.data);
+        std::swap(m_allocator, other.m_allocator);
     }
 
 private:
@@ -1196,6 +1208,113 @@ public:
         return begin() + index;
     }
 
+    constexpr void push_back(std::byte value)
+    {
+        _append(1, [value](std::byte* dest) { *dest = value; });
+    }
+
+    constexpr void pop_back()
+    {
+        m_length -= 1;
+    }
+
+    constexpr auto append(size_type count, std::byte value) -> _small_byte_vector&
+    {
+        _append(count, [value, count](std::byte* dest) {
+            std::memset(dest, std::to_integer<int>(value), count);
+        });
+        return *this;
+    }
+
+    constexpr auto append(const std::byte* bytes, size_type count) -> _small_byte_vector&
+    {
+        _append(count, [bytes, count](std::byte* dest) { std::memcpy(dest, bytes, count); });
+        return *this;
+    }
+
+    constexpr auto append(std::initializer_list<std::byte> ilist) -> _small_byte_vector&
+    {
+        return append(ilist.begin(), ilist.end() - ilist.begin());
+    }
+
+    template <readable_bytes Bytes> constexpr auto append(const Bytes& bytes) -> _small_byte_vector&
+    {
+        return append(bytes.data(), bytes.size());
+    }
+
+    constexpr auto operator+=(std::byte value) -> _small_byte_vector&
+    {
+        push_back(value);
+        return *this;
+    }
+
+    constexpr auto operator+=(std::initializer_list<std::byte> ilist) -> _small_byte_vector&
+    {
+        return append(ilist);
+    }
+
+    template <readable_bytes Bytes>
+    constexpr auto operator+=(const Bytes& bytes) -> _small_byte_vector&
+    {
+        return append(bytes);
+    }
+
+    template <std::contiguous_iterator Iter>
+    constexpr auto append(Iter first, Iter last) -> _small_byte_vector&
+    {
+        const std::byte* bytes = std::to_address(first);
+        auto const count = last - first;
+        return append(bytes, count);
+    }
+
+    template <std::input_iterator Iter>
+    constexpr auto append(Iter first, Iter last) -> _small_byte_vector&
+    {
+        while (first != last)
+        {
+            push_back(*first++);
+        }
+        return *this;
+    }
+
+    constexpr void resize(size_type count)
+    {
+        if (count > size())
+        {
+            _append(count - size(), [](const std::byte* data) {});
+        }
+        else
+        {
+            m_length = count;
+        }
+    }
+
+    constexpr void resize(size_type count, std::byte value)
+    {
+        if (count > size())
+        {
+            append(count - size(), value);
+        }
+        else
+        {
+            m_length = count;
+        }
+    }
+
+    constexpr void swap(_small_byte_vector& other) noexcept
+    {
+        if (this != std::addressof(other))
+        {
+            std::swap(m_length, other.m_length);
+            m_allocated.swap(other.m_allocated);
+
+            std::byte temporary[BufferSize];
+            std::memcpy(temporary, other.m_data.local, BufferSize);
+            std::memcpy(other.m_data.local, m_data.local, BufferSize);
+            std::memcpy(m_data.local, temporary, BufferSize);
+        }
+    }
+
     [[nodiscard]] constexpr bool operator==(const _small_byte_vector& rhs) const noexcept
     {
         if (size() != rhs.size())
@@ -1298,6 +1417,25 @@ private:
         m_length = size() + count;
     }
 
+    template <class Appender> constexpr void _append(size_type count, Appender appender)
+    {
+        if (size() + count > capacity())
+        {
+            auto const new_capacity =
+                _compute_spare_capacity(size() + count, capacity(), max_size());
+            auto* new_data = allocator_traits::allocate(m_allocated.allocator(), new_capacity);
+            std::memcpy(new_data, data(), size());
+            if (is_allocated())
+            {
+                allocator_traits::deallocate(m_allocated.allocator(), m_allocated.data, capacity());
+            }
+            m_allocated.data = new_data;
+            m_data.capacity = new_capacity;
+        }
+        appender(data() + size());
+        m_length += count;
+    }
+
     static constexpr auto _compute_spare_capacity(size_type requested, size_type old, size_type max)
     {
         return std::min(std::max(requested, old + old / 2), max);
@@ -1311,6 +1449,25 @@ private:
         size_type capacity;
     } m_data;
 };
+
+template <class Alloc>
+auto operator+(_small_byte_vector<Alloc> lhs, const _small_byte_vector<Alloc>& rhs)
+    -> _small_byte_vector<Alloc>
+{
+    return lhs += rhs;
+}
+
+template <class Alloc>
+auto operator+(_small_byte_vector<Alloc> lhs, std::byte rhs) -> _small_byte_vector<Alloc>
+{
+    return lhs += rhs;
+}
+
+template <class Alloc>
+auto operator+(std::byte lhs, _small_byte_vector<Alloc> rhs) -> _small_byte_vector<Alloc>
+{
+    return rhs += lhs;
+}
 
 using small_byte_vector = _small_byte_vector<>;
 
