@@ -682,6 +682,11 @@ public:
     {
     }
 
+    constexpr _allocator_hider(Alloc&& alloc) noexcept
+        : Alloc{std::move(alloc)}
+    {
+    }
+
     constexpr auto allocator() noexcept -> Alloc&
     {
         return *this;
@@ -707,6 +712,11 @@ public:
 
     constexpr _allocator_hider(const Alloc& alloc)
         : m_allocator{alloc}
+    {
+    }
+
+    constexpr _allocator_hider(Alloc&& alloc) noexcept
+        : m_allocator{std::move(alloc)}
     {
     }
 
@@ -738,6 +748,207 @@ public:
 
 private:
     Alloc m_allocator;
+};
+
+// Ensure 0-size allocators actually do not result in storage.
+static_assert(sizeof(_allocator_hider<std::allocator<std::byte>, std::byte*>) ==
+              sizeof(std::byte*));
+
+// Use compiler-defined intrinsics if available.
+inline auto copy_bytes(std::byte* dest, const std::byte* src, std::size_t size)
+{
+    std::memcpy(dest, src, size);
+}
+
+template <class Allocator, Allocator::size_type LocalSize = 16> class _byte_storage final
+{
+public:
+    using allocator_type = Allocator;
+    using allocator_traits = std::allocator_traits<allocator_type>;
+    using value_type = std::byte;
+    using pointer = std::byte*;
+    using size_type = typename allocator_type::size_type;
+    using difference_type = typename allocator_type::difference_type;
+
+    static_assert(
+        LocalSize == 0 || LocalSize >= sizeof(size_type),
+        "LocalSize must either be 0 (disable small object optimization) or >= sizeof(size_type)");
+    static constexpr auto BufferSize = LocalSize;
+
+    [[nodiscard]] static constexpr bool is_embedded_enabled()
+    {
+        return BufferSize > 0;
+    }
+
+    constexpr _byte_storage(const allocator_type& allocator) noexcept
+        : m_allocated{allocator}
+    {
+    }
+
+    constexpr _byte_storage(size_type size, const allocator_type& allocator) noexcept
+        : m_allocated{allocator}
+        , m_length{size}
+    {
+        if (size > capacity())
+        {
+            m_allocated.data = allocator_traits::allocate(m_allocated.allocator(), size);
+            m_data.capacity = size;
+        }
+    }
+
+    constexpr _byte_storage(const _byte_storage& other, const allocator_type& allocator)
+        : m_allocated{allocator}
+        , m_length{other.m_length}
+    {
+        if (other.is_allocated())
+        {
+            m_allocated.data = allocator_traits::allocate(get_allocator(), other.capacity());
+            m_data.capacity = other.capacity();
+        }
+        copy_bytes(data(), other.data(), other.size());
+    }
+
+    constexpr _byte_storage(const _byte_storage& other)
+        : m_allocated{allocator_traits::select_on_container_copy_construction(
+              other.get_allocator())}
+        , m_length{other.m_length}
+    {
+        if (other.is_allocated())
+        {
+            m_allocated.data = allocator_traits::allocate(get_allocator(), other.capacity());
+            m_data.capacity = other.capacity();
+        }
+        copy_bytes(data(), other.data(), other.size());
+    }
+
+    constexpr _byte_storage(_byte_storage&& other, const allocator_type& allocator)
+        : m_allocated{allocator}
+        , m_length{other.m_length}
+    {
+        if (other.is_allocated())
+        {
+            if constexpr (allocator_traits::is_always_equal::value)
+            {
+                m_allocated.data = other.m_allocated.data;
+                m_data.capacity = other.m_data.capacity;
+            }
+            else
+            {
+                if (other.get_allocator() != allocator)
+                {
+                    m_allocated.data =
+                        allocator_traits::allocate(get_allocator(), other.capacity());
+                    m_data.capacity = other.capacity();
+                    copy_bytes(data(), other.data(), other.size());
+                    allocator_traits::deallocate(other.get_allocator(), other.capacity());
+                }
+                else
+                {
+                    m_allocated.data = other.m_allocated.data;
+                    m_data.capacity = other.m_data.capacity;
+                }
+            }
+            other.m_allocated.data = nullptr;
+            other.capacity = 0;
+        }
+        else
+        {
+            if constexpr (is_embedded_enabled())
+            {
+                copy_bytes(m_data.local, other.m_data.local, size());
+            }
+        }
+        other.m_length = 0;
+    }
+
+    constexpr _byte_storage(_byte_storage&& other) noexcept
+        : m_allocated{std::move(other.get_allocator())}
+        , m_length{other.m_length}
+    {
+        m_allocated.data = other.m_allocated.data;
+        if (other.is_allocated())
+        {
+            m_data.capacity = other.m_data.capacity;
+            other.m_allocated.data = nullptr;
+            other.m_data.capacity = 0;
+        }
+        else
+        {
+            if constexpr (is_embedded_enabled())
+            {
+                copy_bytes(m_data.local, other.m_data.local, size());
+            }
+        }
+
+        other.m_length = 0;
+    }
+
+    constexpr ~_byte_storage() noexcept
+    {
+        if (is_allocated())
+        {
+            allocator_traits::deallocate(get_allocator(), m_allocated.data, m_data.capacity);
+        }
+    }
+
+    [[nodiscard]] constexpr auto get_allocator() noexcept -> allocator_type&
+    {
+        return m_allocated.allocator();
+    }
+
+    [[nodiscard]] constexpr auto get_allocator() const noexcept -> const allocator_type&
+    {
+        return m_allocated.allocator();
+    }
+
+    [[nodiscard]] constexpr auto size() const noexcept -> size_type
+    {
+        return m_length;
+    }
+
+    [[nodiscard]] constexpr auto capacity() const noexcept -> size_type
+    {
+        if constexpr (is_embedded_enabled())
+        {
+            return is_allocated() ? m_data.capacity : BufferSize;
+        }
+        else
+        {
+            return m_data.capacity;
+        }
+    }
+
+    [[nodiscard]] constexpr bool is_allocated() const noexcept
+    {
+        return m_allocated.data != nullptr;
+    }
+
+    [[nodiscard]] constexpr auto data() -> std::byte*
+    {
+        if constexpr (is_embedded_enabled())
+        {
+            return is_allocated() ? m_allocated.data : m_data.local;
+        }
+        else
+        {
+            return m_allocated.data;
+        }
+    }
+
+    [[nodiscard]] constexpr auto data() const -> const std::byte*
+    {
+        return const_cast<_byte_storage*>(this)->data();
+    }
+
+private:
+    detail::_allocator_hider<allocator_type, pointer> m_allocated;
+    size_type m_length{0};
+    union
+    {
+        size_type capacity;
+        // Set minimal size because 0-sized arrays are not allowed.
+        std::byte local[std::min(sizeof(size_type), BufferSize)];
+    } m_data{0}; // initializes capacity to 0
 };
 
 } // namespace detail
@@ -837,11 +1048,7 @@ public:
         , m_length{init.size()}
     {
         construct(init.size());
-        auto* dest = data();
-        for (auto const value : init)
-        {
-            *dest++ = value;
-        }
+        std::memcpy(data(), init.begin(), init.size());
     }
 
     constexpr ~_small_byte_vector()
