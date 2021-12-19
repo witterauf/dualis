@@ -207,6 +207,15 @@ template <class T, class U> bool stored_within(const T* a, const U* b)
     return a_void >= begin && a_void < end;
 }
 
+struct allocator_stats
+{
+    std::size_t copied{0};
+    std::size_t moved{0};
+    std::size_t allocated{0};
+    std::size_t deallocated{0};
+    std::size_t selected{0};
+};
+
 struct mock_allocator
 {
     using value_type = std::byte;
@@ -214,50 +223,42 @@ struct mock_allocator
     using difference_type = std::ptrdiff_t;
 
     std::allocator<std::byte> allocator;
-    std::size_t copied{0};
-    std::size_t moved{0};
-    std::size_t allocated{0};
-    std::size_t deallocated{0};
-    std::size_t selected{0};
+    allocator_stats* stats;
 
-    constexpr mock_allocator() = default;
-    constexpr ~mock_allocator() = default;
+    constexpr mock_allocator(allocator_stats* stats)
+        : stats{stats}
+    {
+    }
 
     constexpr mock_allocator(const mock_allocator& other) noexcept
         : allocator{other.allocator}
-        , copied{other.copied + 1}
-        , moved{other.moved}
-        , allocated{other.allocated}
-        , deallocated{other.deallocated}
-        , selected{other.selected}
+        , stats{other.stats}
     {
+        stats->copied += 1;
     }
     constexpr mock_allocator(mock_allocator&& other) noexcept
         : allocator{std::move(other.allocator)}
-        , copied{other.copied}
-        , moved{other.moved + 1}
-        , allocated{other.allocated}
-        , deallocated{other.deallocated}
-        , selected{other.selected}
+        , stats{other.stats}
     {
+        stats->moved += 1;
     }
 
     [[nodiscard]] constexpr std::byte* allocate(std::size_t n)
     {
-        allocated += 1;
+        stats->allocated += 1;
         return allocator.allocate(n);
     }
 
     constexpr void deallocate(std::byte* p, std::size_t n)
     {
-        deallocated += 1;
+        stats->deallocated += 1;
         allocator.deallocate(p, n);
     }
 
     [[nodiscard]] constexpr auto select_on_container_copy_construction() const -> mock_allocator
     {
         auto new_alloc = *this;
-        new_alloc.selected += 1;
+        new_alloc.stats->selected += 1;
         return new_alloc;
     }
 };
@@ -280,10 +281,12 @@ SCENARIO(CLASS_UNDER_TEST " [LocalSize > 0]: construction and destruction",
 {
     using namespace dualis::detail;
     static constexpr std::size_t LocalSize = 16;
+    allocator_stats stats;
+    allocator_stats other_stats;
 
     GIVEN("An allocator alloc")
     {
-        mock_allocator alloc;
+        mock_allocator alloc{&stats};
         WHEN("constructing using cut = " CLASS_UNDER_TEST "{alloc}")
         {
             _byte_storage<mock_allocator, LocalSize> cut{alloc};
@@ -301,7 +304,7 @@ SCENARIO(CLASS_UNDER_TEST " [LocalSize > 0]: construction and destruction",
             }
             THEN("no allocation has taken place")
             {
-                REQUIRE(cut.get_allocator().allocated == 0);
+                REQUIRE(stats.allocated == 0);
             }
         }
         WHEN("constructing using cut = " CLASS_UNDER_TEST "{size, alloc}")
@@ -317,7 +320,7 @@ SCENARIO(CLASS_UNDER_TEST " [LocalSize > 0]: construction and destruction",
                 }
                 THEN("1 allocation has taken place")
                 {
-                    REQUIRE(cut.get_allocator().allocated == 1);
+                    REQUIRE(stats.allocated == 1);
                 }
             }
             AND_WHEN("size == LocalSize")
@@ -346,17 +349,18 @@ SCENARIO(CLASS_UNDER_TEST " [LocalSize > 0]: construction and destruction",
     {
         WHEN("other is not allocated (size <= LocalSize)")
         {
-            _byte_storage<mock_allocator, LocalSize> other{8, mock_allocator{}};
+            _byte_storage<mock_allocator, LocalSize> other{8, mock_allocator{&stats}};
             REQUIRE_FALSE(other.is_allocated());
 
             std::memset(other.data(), 12, other.size());
 
             AND_WHEN(CLASS_UNDER_TEST " cut{other}; // copy-constructing without new allocator")
             {
+                auto old_stats = stats;
                 _byte_storage<mock_allocator, LocalSize> cut{other};
                 THEN("the allocator is copied using alloc.select_on_container_copy_construction()")
                 {
-                    REQUIRE(cut.get_allocator().selected == other.get_allocator().selected + 1);
+                    REQUIRE(stats.selected == old_stats.selected + 1);
                 }
                 THEN("copy is not allocated")
                 {
@@ -364,7 +368,7 @@ SCENARIO(CLASS_UNDER_TEST " [LocalSize > 0]: construction and destruction",
 
                     AND_THEN("allocation has not taken place")
                     {
-                        REQUIRE(cut.get_allocator().allocated == other.get_allocator().allocated);
+                        REQUIRE(stats.allocated == old_stats.allocated);
                     }
                 }
                 THEN("other and copy have the same size")
@@ -384,11 +388,12 @@ SCENARIO(CLASS_UNDER_TEST " [LocalSize > 0]: construction and destruction",
         }
         WHEN("other is allocated (size > LocalSize)")
         {
-            _byte_storage<mock_allocator, LocalSize> other{LocalSize + 1, mock_allocator{}};
+            _byte_storage<mock_allocator, LocalSize> other{LocalSize + 1, mock_allocator{&stats}};
             REQUIRE(other.is_allocated());
 
             AND_WHEN(CLASS_UNDER_TEST " cut{other}; // copy-constructing without new allocator")
             {
+                auto const old_stats = stats;
                 _byte_storage<mock_allocator, LocalSize> cut{other};
                 THEN("copy is allocated")
                 {
@@ -396,8 +401,7 @@ SCENARIO(CLASS_UNDER_TEST " [LocalSize > 0]: construction and destruction",
 
                     AND_THEN("allocation has taken place")
                     {
-                        REQUIRE(cut.get_allocator().allocated ==
-                                other.get_allocator().allocated + 1);
+                        REQUIRE(stats.allocated == old_stats.allocated + 1);
                     }
                 }
                 THEN("copy and other have different data pointers")
@@ -409,78 +413,128 @@ SCENARIO(CLASS_UNDER_TEST " [LocalSize > 0]: construction and destruction",
     }
     GIVEN(CLASS_UNDER_TEST " other{size, alloc};")
     {
+        allocator_stats other_stats;
+
         WHEN(CLASS_UNDER_TEST
-             " moved{std::move(other)}; // move-construction without new allocator")
+             " copied{other, other_alloc}; // copy-construction with new allocator")
         {
             AND_WHEN("!other.is_allocated() // data is in embedded storage")
             {
-                _byte_storage<mock_allocator, LocalSize> other{8, mock_allocator{}};
-                REQUIRE_FALSE(other.is_allocated());
-                std::memset(other.data(), 12, other.size());
+                _byte_storage<mock_allocator, LocalSize> other{8, mock_allocator{&stats}};
+                allocator_stats new_stats;
+                _byte_storage<mock_allocator, LocalSize> copied{other, mock_allocator{&new_stats}};
 
-                auto const old_moved = other.get_allocator().moved;
-                auto const old_copied = other.get_allocator().copied;
-                auto const* old_data = other.data();
-                auto const old_capacity = other.capacity();
-                auto const old_size = other.size();
-                _byte_storage<mock_allocator, LocalSize> moved{std::move(other)};
-
-                THEN("the allocator is moved")
+                THEN("the allocator of other is not copied")
                 {
-                    REQUIRE(moved.get_allocator().moved == old_moved + 1);
+                    REQUIRE(stats.copied == 1);
                 }
-                THEN("the allocator is not copied")
+                THEN("no allocation took place")
                 {
-                    REQUIRE(moved.get_allocator().copied == old_copied);
-                }
-                THEN("other.data() is unchanged")
-                {
-                    REQUIRE(other.data() == old_data);
-                }
-                THEN("other.capacity() is unchanged")
-                {
-                    REQUIRE(other.capacity() == old_capacity);
-                }
-                THEN("other.size() is 0")
-                {
-                    REQUIRE(other.size() == 0);
-                }
-                THEN("moved has the same size as other had")
-                {
-                    REQUIRE(moved.size() == old_size);
-                }
-                THEN("the data has been copied")
-                {
-                    REQUIRE(std::memcmp(moved.data(), other.data(), moved.size()) == 0);
+                    REQUIRE(new_stats.allocated == 0);
                 }
             }
-            AND_WHEN("other.is_allocated() // data is allocated")
+        }
+    }
+
+    WHEN(CLASS_UNDER_TEST " moved{std::move(other)}; // move-construction without new allocator")
+    {
+        AND_WHEN("!other.is_allocated() // data is in embedded storage")
+        {
+            _byte_storage<mock_allocator, LocalSize> other{8, mock_allocator{&other_stats}};
+            REQUIRE_FALSE(other.is_allocated());
+            std::memset(other.data(), 12, other.size());
+
+            auto const old_moved = other_stats.moved;
+            auto const old_copied = other_stats.copied;
+            auto const* old_data = other.data();
+            auto const old_capacity = other.capacity();
+            auto const old_size = other.size();
+            _byte_storage<mock_allocator, LocalSize> moved{std::move(other)};
+
+            THEN("the allocator is moved")
             {
-                _byte_storage<mock_allocator, LocalSize> other{LocalSize + 1, mock_allocator{}};
-                REQUIRE(other.is_allocated());
-                std::memset(other.data(), 12, other.size());
+                REQUIRE(other_stats.moved == old_moved + 1);
+            }
+            THEN("the allocator is not copied")
+            {
+                REQUIRE(other_stats.copied == old_copied);
+            }
+            THEN("other.data() is unchanged")
+            {
+                REQUIRE(other.data() == old_data);
+            }
+            THEN("other.capacity() is unchanged")
+            {
+                REQUIRE(other.capacity() == old_capacity);
+            }
+            THEN("other.size() is 0")
+            {
+                REQUIRE(other.size() == 0);
+            }
+            THEN("moved has the same size as other had")
+            {
+                REQUIRE(moved.size() == old_size);
+            }
+            THEN("the data has been copied")
+            {
+                REQUIRE(std::memcmp(moved.data(), other.data(), moved.size()) == 0);
+            }
+        }
+        AND_WHEN("other.is_allocated() // data is allocated")
+        {
+            _byte_storage<mock_allocator, LocalSize> other{LocalSize + 1,
+                                                           mock_allocator{&other_stats}};
+            REQUIRE(other.is_allocated());
+            std::memset(other.data(), 12, other.size());
 
-                auto const old_moved = other.get_allocator().moved;
-                auto const old_copied = other.get_allocator().copied;
-                auto const* old_data = other.data();
-                auto const old_capacity = other.capacity();
-                _byte_storage<mock_allocator, LocalSize> moved{std::move(other)};
+            auto const old_moved = other_stats.moved;
+            auto const old_copied = other_stats.copied;
+            auto const* old_data = other.data();
+            auto const old_capacity = other.capacity();
+            _byte_storage<mock_allocator, LocalSize> moved{std::move(other)};
 
-                THEN("other.data() is stored within other")
+            THEN("other.data() is stored within other")
+            {
+                REQUIRE(stored_within(other.data(), &other));
+            }
+            THEN("other.capacity() is LocalSize")
+            {
+                REQUIRE(other.capacity() == LocalSize);
+            }
+            THEN("other.size() is 0")
+            {
+                REQUIRE(other.size() == 0);
+            }
+            THEN("moved takes the data pointer from other")
+            {
+                REQUIRE(moved.data() == old_data);
+            }
+        }
+    }
+
+    GIVEN("An instance cut of " CLASS_UNDER_TEST)
+    {
+        WHEN("~" CLASS_UNDER_TEST "(); // it is destroyed")
+        {
+            AND_WHEN("!cut.is_allocated()")
+            {
                 {
-                    REQUIRE(stored_within(other.data(), &other));
+                    _byte_storage<mock_allocator, LocalSize> cut{mock_allocator{&stats}};
                 }
-                THEN("other.capacity() is LocalSize")
+                THEN("no delloaction takes place")
                 {
-                    REQUIRE(other.capacity() == LocalSize);
+                    REQUIRE(stats.deallocated == 0);
                 }
-                THEN("other.size() is 0")
+            }
+            AND_WHEN("cut.is_allocated()")
+            {
                 {
-                    REQUIRE(other.size() == 0);
+                    _byte_storage<mock_allocator, LocalSize> cut{LocalSize + 1,
+                                                                 mock_allocator{&stats}};
                 }
-                THEN("moved takes the data pointer from other")
+                THEN("delloaction takes place")
                 {
-                    REQUIRE(moved.data() == old_data);
+                    REQUIRE(stats.deallocated == 1);
                 }
             }
         }

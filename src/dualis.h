@@ -834,7 +834,7 @@ public:
             }
             else
             {
-                if (other.get_allocator() != allocator)
+                if (other.get_allocator() != get_allocator())
                 {
                     m_allocated.data =
                         allocator_traits::allocate(get_allocator(), other.capacity());
@@ -849,7 +849,7 @@ public:
                 }
             }
             other.m_allocated.data = nullptr;
-            other.capacity = 0;
+            other.m_data.capacity = 0;
         }
         else
         {
@@ -943,12 +943,24 @@ public:
 private:
     detail::_allocator_hider<allocator_type, pointer> m_allocated;
     size_type m_length{0};
-    union
+
+    template <size_type N> union compressed_t
     {
         size_type capacity;
-        // Set minimal size because 0-sized arrays are not allowed.
-        std::byte local[std::min(sizeof(size_type), BufferSize)];
-    } m_data{0}; // initializes capacity to 0
+        std::byte local[N];
+    };
+    // If BufferSize == 0 then don't even provide the array m_data.local to force compiler errors
+    // in case any method accesses m_data.local although it shouldn't.
+    // (Note: this is possible because of "if constexpr".)
+    template <> union compressed_t<0>
+    {
+        size_type capacity;
+    };
+
+    static_assert(sizeof(compressed_t<0>) == sizeof(size_type));
+    static_assert(sizeof(compressed_t<sizeof(size_type) * 2>) == sizeof(size_type) * 2);
+
+    compressed_t<BufferSize> m_data{0}; // initializes capacity to 0
 };
 
 } // namespace detail
