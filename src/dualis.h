@@ -834,13 +834,14 @@ public:
             }
             else
             {
-                if (other.get_allocator() != get_allocator())
+                if (!(other.get_allocator() == get_allocator()))
                 {
                     m_allocated.data =
                         allocator_traits::allocate(get_allocator(), other.capacity());
                     m_data.capacity = other.capacity();
                     copy_bytes(data(), other.data(), other.size());
-                    allocator_traits::deallocate(other.get_allocator(), other.capacity());
+                    allocator_traits::deallocate(other.get_allocator(), other.m_allocated.data,
+                                                 other.capacity());
                 }
                 else
                 {
