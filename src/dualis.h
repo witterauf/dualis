@@ -892,42 +892,28 @@ public:
     {
         if constexpr (allocator_traits::propagate_on_container_copy_assignment::value)
         {
-            assign(rhs, rhs.get_allocator());
+            change_allocator(rhs.get_allocator(), rhs.size() > capacity());
         }
-        else
-        {
-            assign(rhs.data(), rhs.size());
-        }
+        assign(rhs.data(), rhs.size());
     }
 
-    constexpr void assign(const _byte_storage& rhs, const allocator_type& allocator)
+    constexpr void change_allocator(const allocator_type& allocator, bool destroy_if)
     {
-        auto const count = rhs.size();
-
         if constexpr (allocator_traits::is_always_equal::value)
         {
-            if (count > capacity())
+            if (destroy_if)
             {
                 _destroy();
             }
         }
         else
         {
-            if (count > capacity() || get_allocator() != allocator)
+            if (destroy_if || get_allocator() != allocator)
             {
                 _destroy();
             }
         }
         m_allocated.assign(allocator);
-
-        if (count > capacity())
-        {
-            auto const new_capacity = rhs.capacity();
-            m_allocated.data = allocator_traits::allocate(get_allocator(), new_capacity);
-            m_data.capacity = new_capacity;
-        }
-        copy_bytes(data(), rhs.data(), count);
-        m_length = count;
     }
 
     constexpr void _reallocate(size_type new_capacity, allocator_type& allocator)

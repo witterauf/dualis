@@ -197,24 +197,25 @@ template <class AlwaysEqual, class Propagate> struct mock_allocator
 };
 
 using always_equal_allocator = mock_allocator<std::true_type, std::false_type>;
+using not_always_equal_allocator = mock_allocator<std::false_type, std::true_type>;
 using propagate_allocator = mock_allocator<std::false_type, std::true_type>;
 using dont_propagate_allocator = always_equal_allocator;
 using propagate_always_equal_allocator = mock_allocator<std::true_type, std::true_type>;
 
 template <class Allocator, std::size_t EmbeddedSize>
-auto make_allocated_byte_storage(allocator_stats* stats)
+auto make_allocated_byte_storage(allocator_stats* stats, unsigned id = 0)
     -> dualis::detail::_byte_storage<Allocator, EmbeddedSize>
 {
     return dualis::detail::_byte_storage<Allocator, EmbeddedSize>{EmbeddedSize + 1,
-                                                                  Allocator{stats}};
+                                                                  Allocator{stats, id}};
 }
 
 template <class Allocator, std::size_t EmbeddedSize>
-auto make_embedded_byte_storage(allocator_stats* stats)
+auto make_embedded_byte_storage(allocator_stats* stats, unsigned id = 0)
     -> dualis::detail::_byte_storage<Allocator, EmbeddedSize>
 {
     return dualis::detail::_byte_storage<Allocator, EmbeddedSize>{EmbeddedSize - 1,
-                                                                  Allocator{stats}};
+                                                                  Allocator{stats, id}};
 }
 
 #define CLASS_UNDER_TEST "_byte_storage"
@@ -224,6 +225,8 @@ SCENARIO(CLASS_UNDER_TEST ": assignment", "[containers]")
     static constexpr std::size_t EmbeddedSize = 16;
     static constexpr std::size_t EmbeddedStorageSize = EmbeddedSize - 1;
     static constexpr std::size_t AllocatedStorageSize = EmbeddedSize + 1;
+    static constexpr std::size_t DefaultId = 0;
+    static constexpr std::size_t DistinctId = 1;
     using namespace dualis::detail;
     std::array<std::byte, EmbeddedSize> TestData{0x10_b, 0x11_b, 0x12_b, 0x13_b, 0x10_b, 0x11_b,
                                                  0x12_b, 0x13_b, 0x10_b, 0x11_b, 0x12_b, 0x13_b,
@@ -329,115 +332,140 @@ SCENARIO(CLASS_UNDER_TEST ": assignment", "[containers]")
             }
         }
 
-        WHEN("_bytes_.assign(_other_, new_alloc); // copy-assign with new allocator")
+        WHEN("_bytes_.change_allocator(new_alloc, destroy); // assign new allocator")
         {
-            auto _bytes_ =
-                make_embedded_byte_storage<dont_propagate_allocator, EmbeddedSize>(&stats);
-            auto _other_ =
-                make_embedded_byte_storage<dont_propagate_allocator, EmbeddedSize>(&other_stats);
-            std::memcpy(_other_.data(), TestData.data(), _other_.size());
+            THEN("_bytes_ has new_alloc")
+            {
+                static constexpr bool DoesntMatter = true;
+                auto _bytes_ = make_embedded_byte_storage<always_equal_allocator, EmbeddedSize>(
+                    &stats, DefaultId);
+                decltype(_bytes_)::allocator_type new_alloc{&other_stats, DistinctId};
 
-            _bytes_.assign(_other_, _other_.get_allocator());
+                new_alloc.start_tracking();
+                _bytes_.change_allocator(new_alloc, DoesntMatter);
+
+                REQUIRE(_bytes_.get_allocator().id == DistinctId);
+
+                AND_THEN("it is a copy")
+                {
+                    REQUIRE(new_alloc.stats->copied == 1);
+                }
+            }
+
+            AND_WHEN("_bytes_.is_allocated()")
+            {
+                AND_WHEN("allocator_traits::is_always_equal")
+                {
+                    auto _bytes_ =
+                        make_allocated_byte_storage<always_equal_allocator, EmbeddedSize>(
+                            &stats, DefaultId);
+                    static_assert(decltype(_bytes_)::allocator_traits::is_always_equal::value);
+                    decltype(_bytes_)::allocator_type new_alloc{&other_stats, DistinctId};
+
+                    AND_WHEN("destroy")
+                    {
+                        _bytes_.change_allocator(new_alloc, true);
+
+                        THEN("its data is deallocated")
+                        {
+                            REQUIRE(stats.deallocated == 1);
+                        }
+                    }
+                    AND_WHEN("!destroy")
+                    {
+                        _bytes_.change_allocator(new_alloc, false);
+
+                        THEN("its data is not deallocated")
+                        {
+                            REQUIRE(stats.deallocated == 0);
+                        }
+                    }
+                }
+                AND_WHEN("!allocator_traits::is_always_equal")
+                {
+                    auto _bytes_ =
+                        make_allocated_byte_storage<not_always_equal_allocator, EmbeddedSize>(
+                            &stats, DefaultId);
+                    static_assert(!decltype(_bytes_)::allocator_traits::is_always_equal::value);
+
+                    AND_WHEN("_bytes_.allocator() != new_alloc")
+                    {
+                        decltype(_bytes_)::allocator_type new_alloc{&other_stats, DistinctId};
+                        REQUIRE(_bytes_.get_allocator() != new_alloc);
+
+                        _bytes_.change_allocator(new_alloc, false);
+
+                        THEN("its data is deallocated")
+                        {
+                            REQUIRE(stats.deallocated == 1);
+                        }
+                    }
+                    AND_WHEN("_bytes_.allocator() == new_alloc")
+                    {
+                        decltype(_bytes_)::allocator_type new_alloc{&other_stats, DefaultId};
+                        REQUIRE(_bytes_.get_allocator() == new_alloc);
+
+                        _bytes_.change_allocator(new_alloc, false);
+
+                        THEN("its data is not deallocated")
+                        {
+                            REQUIRE(stats.deallocated == 0);
+                        }
+                    }
+                }
+            }
         }
 
         WHEN("_bytes_.assign(_other_); // copy-assign")
         {
-            AND_WHEN("!allocator_type::propagate_on_container_copy_assignment")
+            AND_WHEN("!allocator_traits::propagate_on_container_copy_assignment")
             {
                 auto _bytes_ =
                     make_embedded_byte_storage<dont_propagate_allocator, EmbeddedSize>(&stats);
                 auto _other_ = make_embedded_byte_storage<dont_propagate_allocator, EmbeddedSize>(
-                    &other_stats);
+                    &other_stats, DistinctId);
+                static_assert(!decltype(_bytes_)::allocator_traits::
+                                  propagate_on_container_copy_assignment::value);
                 std::memcpy(_other_.data(), TestData.data(), _other_.size());
                 _bytes_.get_allocator().start_tracking();
                 _other_.get_allocator().start_tracking();
 
                 _bytes_.assign(_other_);
 
-                THEN("_bytes_ equals _other_")
-                {
-                    REQUIRE_THAT(_bytes_, EqualsByteRange(_other_));
-                }
                 THEN("the allocator of _bytes_ is not modified")
                 {
                     REQUIRE_THAT(_bytes_.get_allocator(), NotModified());
+                    REQUIRE(_bytes_.get_allocator().id == DefaultId);
                 }
                 THEN("the allocator of _other_ is not modified")
                 {
                     REQUIRE_THAT(_other_.get_allocator(), NotModified());
+                    REQUIRE(_other_.get_allocator().id == DistinctId);
                 }
             }
-            AND_WHEN("allocator_type::propagate_on_container_copy_assignment")
+            AND_WHEN("allocator_traits::propagate_on_container_copy_assignment")
             {
-                AND_WHEN("_other_.size() <= _bytes_.capacity()")
+                auto _bytes_ =
+                    make_embedded_byte_storage<propagate_allocator, EmbeddedSize>(&stats);
+                auto _other_ = make_embedded_byte_storage<propagate_allocator, EmbeddedSize>(
+                    &other_stats, DistinctId);
+                static_assert(decltype(_bytes_)::allocator_traits::
+                                  propagate_on_container_copy_assignment::value);
+                std::memcpy(_other_.data(), TestData.data(), _other_.size());
+                _bytes_.get_allocator().start_tracking();
+                _other_.get_allocator().start_tracking();
+
+                _bytes_.assign(_other_);
+
+                THEN("the allocator of _other_ has been propagated to _bytes_")
                 {
-                    auto _bytes_ =
-                        make_embedded_byte_storage<propagate_allocator, EmbeddedSize>(&stats);
-                    auto _other_ =
-                        make_embedded_byte_storage<propagate_allocator, EmbeddedSize>(&other_stats);
-                    REQUIRE(_other_.size() <= _bytes_.capacity());
-                    std::memcpy(_other_.data(), TestData.data(), _other_.size());
+                    REQUIRE(_bytes_.get_allocator().id == _other_.get_allocator().id);
 
-                    _other_.get_allocator().start_tracking();
-                    _bytes_.assign(_other_);
-
-                    THEN("_bytes_ and _other_ are equal")
+                    THEN("by copying")
                     {
-                        REQUIRE_THAT(_bytes_, EqualsByteRange(_other_));
-                    }
-                    THEN("allocator of _other_ has been propagated to _bytes_")
-                    {
-                        REQUIRE(_bytes_.get_allocator().stats == &other_stats);
-
-                        AND_THEN("by copying")
-                        {
-                            REQUIRE(other_stats.copied == 1);
-                        }
+                        REQUIRE(other_stats.copied == 1);
                     }
                 }
-                /*
-                AND_WHEN("_other_.size() > _bytes_.capacity()")
-                {
-                    byte_storage _other_{EmbeddedSize + 2, other_alloc};
-                    std::memcpy(_other_.data(), TestData.data(),
-                                std::min(TestData.size(), _other_.size()));
-
-                    AND_WHEN("!_bytes_.is_allocated()")
-                    {
-                        byte_storage _bytes_{EmbeddedSize - 1, alloc};
-                        REQUIRE_FALSE(_bytes_.is_allocated());
-                        REQUIRE(_other_.size() > _bytes_.capacity());
-
-                        _bytes_.assign(_other_);
-
-                        THEN("both have the same size")
-                        {
-                            REQUIRE(_bytes_.size() == _other_.size());
-
-                            AND_THEN("both have the same contents")
-                            {
-                                REQUIRE_THAT(_bytes_, EqualsByteRange(_other_));
-                            }
-                        }
-                        THEN("allocator of _other_ has been propagated to _bytes_")
-                        {
-                            REQUIRE(_bytes_.get_allocator().stats == &other_stats);
-                        }
-                    }
-                    AND_WHEN("_bytes_.is_allocated()")
-                    {
-                        byte_storage _bytes_{EmbeddedSize + 1, alloc};
-                        REQUIRE(_bytes_.is_allocated());
-                        REQUIRE(_other_.size() > _bytes_.capacity());
-
-                        _bytes_.assign(_other_);
-
-                        THEN("the data of _bytes_ has been deallocated")
-                        {
-                            REQUIRE(stats.deallocated == 1);
-                        }
-                    }
-                }*/
             }
         }
     }
