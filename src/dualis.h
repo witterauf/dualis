@@ -916,13 +916,6 @@ public:
         m_allocated.assign(allocator);
     }
 
-    constexpr void _reallocate(size_type new_capacity, allocator_type& allocator)
-    {
-        _destroy();
-        m_allocated.data = allocator_traits::allocate(allocator, new_capacity);
-        m_data.capacity = new_capacity;
-    }
-
     constexpr void assign(_byte_storage&& rhs)
     {
         if constexpr (!allocator_traits::propagate_on_container_move_assignment::value &&
@@ -955,6 +948,9 @@ public:
 
     constexpr void swap(_byte_storage& other) noexcept
     {
+        if constexpr (allocator_traits::propagate_on_container_swap)
+        {
+        }
         m_allocated.swap(other.m_allocated);
         std::swap(m_length, other.m_length);
         std::byte temp[BufferSize];
@@ -1086,6 +1082,13 @@ private:
         rhs.m_allocated.data = nullptr;
         rhs.m_length = 0;
         rhs.m_data.capacity = BufferSize;
+    }
+
+    constexpr void _reallocate(size_type new_capacity, allocator_type& allocator)
+    {
+        _destroy();
+        m_allocated.data = allocator_traits::allocate(allocator, new_capacity);
+        m_data.capacity = new_capacity;
     }
 
     static constexpr auto _compute_spare_capacity(size_type requested, size_type old, size_type max)
