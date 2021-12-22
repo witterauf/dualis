@@ -880,16 +880,146 @@ public:
                 copy_bytes(m_data.local, other.m_data.local, size());
             }
         }
-
         other.m_length = 0;
     }
 
     constexpr ~_byte_storage() noexcept
     {
-        if (is_allocated())
+        _destroy();
+    }
+
+    constexpr void assign(const _byte_storage& rhs)
+    {
+        if constexpr (allocator_traits::propagate_on_container_copy_assignment::value)
         {
-            allocator_traits::deallocate(get_allocator(), m_allocated.data, m_data.capacity);
+            assign(rhs, rhs.get_allocator());
         }
+        else
+        {
+            assign(rhs.data(), rhs.size());
+        }
+    }
+
+    constexpr void assign(const _byte_storage& rhs, const allocator_type& allocator)
+    {
+        auto const count = rhs.size();
+
+        if constexpr (allocator_traits::is_always_equal::value)
+        {
+            if (count > capacity())
+            {
+                _destroy();
+            }
+        }
+        else
+        {
+            if (count > capacity() || get_allocator() != allocator)
+            {
+                _destroy();
+            }
+        }
+        m_allocated.assign(allocator);
+
+        if (count > capacity())
+        {
+            auto const new_capacity = rhs.capacity();
+            m_allocated.data = allocator_traits::allocate(get_allocator(), new_capacity);
+            m_data.capacity = new_capacity;
+        }
+        copy_bytes(data(), rhs.data(), count);
+        m_length = count;
+    }
+
+    constexpr void _reallocate(size_type new_capacity, allocator_type& allocator)
+    {
+        _destroy();
+        m_allocated.data = allocator_traits::allocate(allocator, new_capacity);
+        m_data.capacity = new_capacity;
+    }
+
+    constexpr void assign(_byte_storage&& rhs)
+    {
+        if constexpr (!allocator_traits::propagate_on_container_move_assignment::value &&
+                      !allocator_traits::is_always_equal::value)
+        {
+            if (get_allocator() != rhs.get_allocator())
+            {
+                // Don't propagate allocator and allocators not equal means the data needs to be
+                // copied.
+                assign(rhs.data(), rhs.size());
+                rhs._destroy();
+                rhs.m_length = 0;
+                return;
+            }
+        }
+
+        _destroy();
+        if constexpr (allocator_traits::propagate_on_container_move_assignment::value)
+        {
+            m_allocated.assign(std::move(rhs.m_allocated.allocator()));
+        }
+        _take_contents(std::move(rhs));
+    }
+
+    constexpr void assign(const std::byte* bytes, size_type count)
+    {
+        auto* reassigned_data = reassign(count);
+        copy_bytes(reassigned_data, bytes, count);
+    }
+
+    constexpr void swap(_byte_storage& other) noexcept
+    {
+        m_allocated.swap(other.m_allocated);
+        std::swap(m_length, other.m_length);
+        std::byte temp[BufferSize];
+        copy_bytes(temp, m_data.local, BufferSize);
+        copy_bytes(m_data.local, other.m_data.local, BufferSize);
+        copy_bytes(other.m_data.local, temp, BufferSize);
+    }
+
+    // Resizes the storage without initializing its content and returns the pointer to the new
+    // storage.
+    constexpr auto reassign(size_type count) -> std::byte*
+    {
+        m_length = count;
+        if (count > capacity())
+        {
+            auto const new_capacity = _compute_spare_capacity(
+                count, capacity(), allocator_traits::max_size(get_allocator()));
+            _reallocate(new_capacity, get_allocator());
+            return m_allocated.data;
+        }
+        else
+        {
+            return data();
+        }
+    }
+
+    template <class Functor> constexpr void resize(size_type count, Functor f)
+    {
+        if (count > capacity())
+        {
+            auto* new_data = allocator_traits::allocate(get_allocator(), count);
+            if (is_allocated())
+            {
+                copy_bytes(new_data, m_allocated.data, size());
+                allocator_traits::deallocate(get_allocator(), m_allocated.data, m_data.capacity);
+            }
+            else
+            {
+                if constexpr (is_embedded_enabled())
+                {
+                    copy_bytes(new_data, m_data.local, size());
+                }
+            }
+            m_allocated.data = new_data;
+            m_data.capacity = count;
+        }
+        if (count > m_length)
+        {
+            f(data(), count - m_length);
+        }
+        m_length = count;
     }
 
     [[nodiscard]] constexpr auto get_allocator() noexcept -> allocator_type&
@@ -942,6 +1072,41 @@ public:
     }
 
 private:
+    constexpr void _destroy()
+    {
+        if (is_allocated())
+        {
+            allocator_traits::deallocate(get_allocator(), m_allocated.data, m_data.capacity);
+            m_allocated.data = nullptr;
+        }
+    }
+
+    constexpr void _take_contents(_byte_storage&& rhs)
+    {
+        m_length = rhs.m_length;
+        if (rhs.is_allocated())
+        {
+            m_allocated.data = rhs.m_allocated.data;
+            m_data.capacity = rhs.capacity();
+        }
+        else
+        {
+            m_allocated.data = nullptr;
+            if constexpr (is_embedded_enabled())
+            {
+                copy_bytes(m_data.local, rhs.m_data.local, rhs.size());
+            }
+        }
+        rhs.m_allocated.data = nullptr;
+        rhs.m_length = 0;
+        rhs.m_data.capacity = BufferSize;
+    }
+
+    static constexpr auto _compute_spare_capacity(size_type requested, size_type old, size_type max)
+    {
+        return std::min(std::max(requested, old + old / 2), max);
+    }
+
     detail::_allocator_hider<allocator_type, pointer> m_allocated;
     size_type m_length{0};
 
@@ -950,9 +1115,9 @@ private:
         size_type capacity;
         std::byte local[N];
     };
-    // If BufferSize == 0 then don't even provide the array m_data.local to force compiler errors
-    // in case any method accesses m_data.local although it shouldn't.
-    // (Note: this is possible because of "if constexpr".)
+    // If BufferSize == 0 then don't even provide the array m_data.local to force compiler
+    // errors in case any method accesses m_data.local although it shouldn't. (Note: this is
+    // possible because of "if constexpr".)
     template <> union compressed_t<0>
     {
         size_type capacity;
