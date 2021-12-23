@@ -708,6 +708,8 @@ public:
 template <class Alloc, class T> class _allocator_hider<Alloc, T, false> final
 {
 public:
+    using allocator_traits = typename std::allocator_traits<Alloc>;
+
     T data{nullptr};
 
     constexpr _allocator_hider(const Alloc& alloc)
@@ -742,8 +744,13 @@ public:
 
     constexpr void swap(_allocator_hider& other) noexcept
     {
+        if constexpr (allocator_traits::propagate_on_container_swap::value)
+        {
+            std::swap(m_allocator, other.m_allocator);
+        }
+        // It is undefined behavior if the allocator is both not propagated on swap and the two
+        // allocators are not equal. It is there "safe" to always swap data.
         std::swap(data, other.data);
-        std::swap(m_allocator, other.m_allocator);
     }
 
 private:
@@ -916,6 +923,28 @@ public:
         m_allocated.assign(allocator);
     }
 
+    constexpr void take_contents(_byte_storage& rhs)
+    {
+        // Expects(get_allocator() == rhs.get_allocator());
+        // Expects(is_allocated() == false);
+        m_length = rhs.m_length;
+        if (rhs.is_allocated())
+        {
+            m_allocated.data = rhs.m_allocated.data;
+            m_data.capacity = rhs.capacity();
+        }
+        else
+        {
+            m_allocated.data = nullptr;
+            if constexpr (is_embedded_enabled())
+            {
+                copy_bytes(m_data.local, rhs.m_data.local, rhs.size());
+            }
+        }
+        rhs.m_allocated.data = nullptr;
+        rhs.m_length = 0;
+    }
+
     constexpr void assign(_byte_storage&& rhs)
     {
         if constexpr (!allocator_traits::propagate_on_container_move_assignment::value &&
@@ -926,7 +955,6 @@ public:
                 // Don't propagate allocator and allocators not equal means the data needs to be
                 // copied.
                 assign(rhs.data(), rhs.size());
-                rhs._destroy();
                 rhs.m_length = 0;
                 return;
             }
@@ -937,7 +965,7 @@ public:
         {
             m_allocated.assign(std::move(rhs.m_allocated.allocator()));
         }
-        _take_contents(std::move(rhs));
+        take_contents(rhs);
     }
 
     constexpr void assign(const std::byte* bytes, size_type count)
@@ -948,15 +976,20 @@ public:
 
     constexpr void swap(_byte_storage& other) noexcept
     {
-        if constexpr (allocator_traits::propagate_on_container_swap)
-        {
-        }
         m_allocated.swap(other.m_allocated);
         std::swap(m_length, other.m_length);
-        std::byte temp[BufferSize];
-        copy_bytes(temp, m_data.local, BufferSize);
-        copy_bytes(m_data.local, other.m_data.local, BufferSize);
-        copy_bytes(other.m_data.local, temp, BufferSize);
+        if constexpr (is_embedded_enabled())
+        {
+            if (!is_allocated())
+            {
+                std::byte temp[BufferSize];
+                copy_bytes(temp, m_data.local, BufferSize);
+                copy_bytes(m_data.local, other.m_data.local, BufferSize);
+                copy_bytes(other.m_data.local, temp, BufferSize);
+                return;
+            }
+        }
+        std::swap(m_data.capacity, other.m_data.capacity);
     }
 
     // Resizes the storage without initializing its content and returns the pointer to the new
@@ -1063,27 +1096,6 @@ private:
         }
     }
 
-    constexpr void _take_contents(_byte_storage&& rhs)
-    {
-        m_length = rhs.m_length;
-        if (rhs.is_allocated())
-        {
-            m_allocated.data = rhs.m_allocated.data;
-            m_data.capacity = rhs.capacity();
-        }
-        else
-        {
-            m_allocated.data = nullptr;
-            if constexpr (is_embedded_enabled())
-            {
-                copy_bytes(m_data.local, rhs.m_data.local, rhs.size());
-            }
-        }
-        rhs.m_allocated.data = nullptr;
-        rhs.m_length = 0;
-        rhs.m_data.capacity = BufferSize;
-    }
-
     constexpr void _reallocate(size_type new_capacity, allocator_type& allocator)
     {
         _destroy();
@@ -1091,7 +1103,8 @@ private:
         m_data.capacity = new_capacity;
     }
 
-    static constexpr auto _compute_spare_capacity(size_type requested, size_type old, size_type max)
+    [[nodiscard]] static constexpr auto _compute_spare_capacity(size_type requested, size_type old,
+                                                                size_type max)
     {
         return std::min(std::max(requested, old + old / 2), max);
     }

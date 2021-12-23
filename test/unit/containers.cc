@@ -213,6 +213,7 @@ using not_always_equal_allocator = mock_allocator<std::false_type, std::true_typ
 using propagate_allocator = mock_allocator<std::false_type, std::true_type>;
 using dont_propagate_allocator = always_equal_allocator;
 using propagate_always_equal_allocator = mock_allocator<std::true_type, std::true_type>;
+using dont_propagate_not_always_equal_allocator = mock_allocator<std::false_type, std::false_type>;
 
 template <class Allocator, std::size_t EmbeddedSize>
 auto make_allocated_byte_storage(allocator_stats* stats, unsigned id = 0)
@@ -493,16 +494,195 @@ SCENARIO(CLASS_UNDER_TEST ": assignment", "[containers]")
             }
         }
 
+        WHEN("_bytes_.take_contents(_other);")
+        {
+            auto _bytes_ = make_embedded_byte_storage<propagate_allocator, EmbeddedSize>(&stats);
+
+            AND_WHEN("_other_.is_allocated()")
+            {
+                auto _other_ =
+                    make_allocated_byte_storage<propagate_allocator, EmbeddedSize>(&other_stats);
+
+                auto const* old_data = _other_.data();
+                auto const old_capacity = _other_.capacity();
+                auto const old_size = _other_.size();
+                _bytes_.take_contents(_other_);
+
+                THEN("_bytes_ is allocated")
+                {
+                    REQUIRE(_bytes_.is_allocated());
+                }
+                THEN("_bytes_ has _other_'s data")
+                {
+                    REQUIRE(_bytes_.data() == old_data);
+
+                    AND_THEN("_bytes_ has _other_'s capacity")
+                    {
+                        REQUIRE(_bytes_.capacity() == old_capacity);
+                    }
+                    AND_THEN("_bytes_ has _other_'s size")
+                    {
+                        REQUIRE(_bytes_.capacity() == old_size);
+                    }
+                }
+                THEN("_other_ is not allocated anymore")
+                {
+                    REQUIRE_FALSE(_other_.is_allocated());
+                }
+                THEN("_other_ is empty")
+                {
+                    REQUIRE(_other_.size() == 0);
+                }
+            }
+            AND_WHEN("!_other_.is_allocated()")
+            {
+                auto _other_ =
+                    make_embedded_byte_storage<propagate_allocator, EmbeddedSize>(&other_stats);
+                _other_.assign(TestData.data(), _other_.size());
+
+                auto const old_size = _other_.size();
+                _bytes_.take_contents(_other_);
+
+                THEN("_bytes_ is not allocated")
+                {
+                    REQUIRE_FALSE(_bytes_.is_allocated());
+                }
+                THEN("_bytes_ has the same size _other_ had")
+                {
+                    REQUIRE(_bytes_.size() == old_size);
+
+                    AND_THEN("_bytes_ has the same contents _other_ had")
+                    {
+                        REQUIRE_THAT(_bytes_, EqualsByteRange(TestData, _bytes_.size()));
+                    }
+                }
+                THEN("_other_ is empty")
+                {
+                    REQUIRE(_other_.size() == 0);
+                }
+            }
+        }
+
         WHEN("_bytes_.assign(std::move(_other_)); // move-assign")
         {
             AND_WHEN("!allocator_traits::propagate_on_container_move_assignment && "
                      "!allocator_traits::is_always_equal && _bytes_.get_allocator() != "
                      "_other_.get_allocator()")
             {
+                auto _bytes_ = make_embedded_byte_storage<dont_propagate_not_always_equal_allocator,
+                                                          EmbeddedSize>(&stats);
+                auto _other_ = make_embedded_byte_storage<dont_propagate_not_always_equal_allocator,
+                                                          EmbeddedSize>(&other_stats, DistinctId);
+                _other_.assign(TestData.data(), _other_.size());
+                _bytes_.get_allocator().start_tracking();
+                _other_.get_allocator().start_tracking();
+
+                auto const old_size = _other_.size();
+                _bytes_.assign(std::move(_other_));
+
+                THEN("_other_ is empty")
+                {
+                    REQUIRE(_other_.size() == 0);
+                }
+                THEN("_bytes_ has the same size _other_ had")
+                {
+                    REQUIRE(_bytes_.size() == old_size);
+
+                    AND_THEN("_bytes_ has the same contents _other_ had")
+                    {
+                        REQUIRE_THAT(_bytes_, EqualsByteRange(TestData, _bytes_.size()));
+                    }
+                }
+                THEN("the allocator of _bytes_ was not touched")
+                {
+                    REQUIRE_THAT(_bytes_.get_allocator(), NotModified());
+                }
+                THEN("the allocator of _other_ was not touched")
+                {
+                    REQUIRE_THAT(_other_.get_allocator(), NotModified());
+                }
             }
             AND_WHEN("allocator_traits::propagate_on_container_move_assignment")
             {
+                auto _bytes_ =
+                    make_embedded_byte_storage<propagate_allocator, EmbeddedSize>(&stats);
+                auto _other_ = make_embedded_byte_storage<propagate_allocator, EmbeddedSize>(
+                    &other_stats, DistinctId);
+                _other_.assign(TestData.data(), _other_.size());
+                _bytes_.get_allocator().start_tracking();
+                _other_.get_allocator().start_tracking();
+
+                _bytes_.assign(std::move(_other_));
+
+                THEN("the allocator of _bytes_ was replaced by _other_'s")
+                {
+                    REQUIRE(_bytes_.get_allocator().id == _other_.get_allocator().id);
+
+                    AND_THEN("by moving")
+                    {
+                        REQUIRE(other_stats.moved == 1);
+                    }
+                }
             }
+            AND_WHEN("!allocator_traits::propagate_on_container_move_assignment")
+            {
+                auto _bytes_ =
+                    make_embedded_byte_storage<dont_propagate_allocator, EmbeddedSize>(&stats);
+                auto _other_ = make_embedded_byte_storage<dont_propagate_allocator, EmbeddedSize>(
+                    &other_stats);
+                _other_.assign(TestData.data(), _other_.size());
+                _bytes_.get_allocator().start_tracking();
+                _other_.get_allocator().start_tracking();
+
+                _bytes_.assign(std::move(_other_));
+
+                THEN("the allocator of _bytes_ was not touched")
+                {
+                    REQUIRE_THAT(_bytes_.get_allocator(), NotModified());
+                }
+                THEN("the allocator of _other_ was not touched")
+                {
+                    REQUIRE_THAT(_other_.get_allocator(), NotModified());
+                }
+            }
+            AND_WHEN("!_bytes_.is_allocated()")
+            {
+                auto _bytes_ =
+                    make_embedded_byte_storage<dont_propagate_allocator, EmbeddedSize>(&stats);
+                auto _other_ = make_embedded_byte_storage<dont_propagate_allocator, EmbeddedSize>(
+                    &other_stats);
+                _other_.assign(TestData.data(), _other_.size());
+                _bytes_.get_allocator().start_tracking();
+                _other_.get_allocator().start_tracking();
+
+                _bytes_.assign(std::move(_other_));
+
+                THEN("no deallocation by _bytes_ takes place")
+                {
+                    REQUIRE(stats.deallocated == 0);
+                }
+            }
+            AND_WHEN("_bytes_.is_allocated()")
+            {
+                auto _bytes_ =
+                    make_allocated_byte_storage<dont_propagate_allocator, EmbeddedSize>(&stats);
+                auto _other_ = make_embedded_byte_storage<dont_propagate_allocator, EmbeddedSize>(
+                    &other_stats);
+                _other_.assign(TestData.data(), _other_.size());
+                _bytes_.get_allocator().start_tracking();
+                _other_.get_allocator().start_tracking();
+
+                _bytes_.assign(std::move(_other_));
+
+                THEN("the old data of _bytes_ is deallocated")
+                {
+                    REQUIRE(stats.deallocated == 1);
+                }
+            }
+        }
+
+        WHEN("_bytes_.swap(_other);")
+        {
         }
     }
 }
