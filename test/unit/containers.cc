@@ -103,6 +103,34 @@ auto EqualsByteRange(const ByteRange& bytes, const std::size_t count = 0)
     return EqualsByteRangeMatcher<ByteRange>{bytes, count};
 }
 
+template <class T> struct PointsWithinMatcher : Catch::Matchers::MatcherGenericBase
+{
+    PointsWithinMatcher(const T& object)
+        : m_value{object}
+    {
+    }
+
+    bool match(const std::byte* pointer) const
+    {
+        auto const* lower = reinterpret_cast<const std::byte*>(&m_value);
+        auto const* upper = reinterpret_cast<const std::byte*>(&m_value + 1);
+        return pointer >= lower && pointer < upper;
+    }
+
+    auto describe() const -> std::string override
+    {
+        return "is stored within object";
+    }
+
+private:
+    const T& m_value;
+};
+
+template <class T> auto PointsWithin(const T& value) -> PointsWithinMatcher<T>
+{
+    return PointsWithinMatcher<T>{value};
+}
+
 struct allocator_stats
 {
     std::size_t copied{0};
@@ -683,6 +711,415 @@ SCENARIO(CLASS_UNDER_TEST ": assignment", "[containers]")
 
         WHEN("_bytes_.swap(_other);")
         {
+            auto _bytes_ =
+                make_allocated_byte_storage<always_equal_allocator, EmbeddedSize>(&stats);
+            auto _other_ =
+                make_embedded_byte_storage<always_equal_allocator, EmbeddedSize>(&other_stats);
+            _bytes_.assign(TestData.data() + 1, _other_.size());
+            _other_.assign(TestData.data(), _other_.size());
+
+            const decltype(_bytes_) _bytes_copy_{_bytes_};
+            const decltype(_other_) _other_copy_{_other_};
+
+            _bytes_.swap(_other_);
+
+            THEN("_bytes_ contains the contents _other_ had")
+            {
+                REQUIRE_THAT(_bytes_, EqualsByteRange(_other_copy_));
+
+                AND_THEN("_bytes_ is allocated if _other_ was")
+                {
+                    REQUIRE(_bytes_.is_allocated() == _other_copy_.is_allocated());
+                }
+            }
+            THEN("_other_ contains the contents _bytes_ had")
+            {
+                REQUIRE_THAT(_other_, EqualsByteRange(_bytes_copy_));
+
+                AND_THEN("_other_ is allocated if _bytes_ was")
+                {
+                    REQUIRE(_other_.is_allocated() == _bytes_copy_.is_allocated());
+                }
+            }
+        }
+    }
+}
+
+SCENARIO(CLASS_UNDER_TEST ": construction and deconstruction", "[containers]")
+{
+    using namespace dualis::detail;
+    static constexpr std::size_t EmbeddedSize = 16;
+    static constexpr unsigned DistinctId = 13;
+    allocator_stats stats;
+    always_equal_allocator allocator{&stats, DistinctId};
+    std::array<std::byte, EmbeddedSize + 2> TestData{
+        0x10_b, 0x11_b, 0x12_b, 0x13_b, 0x10_b, 0x11_b, 0x12_b, 0x13_b, 0x10_b,
+        0x11_b, 0x12_b, 0x13_b, 0x10_b, 0x11_b, 0x12_b, 0x13_b, 0x33_b, 0x34_b};
+
+    GIVEN("an allocator")
+    {
+        WHEN(CLASS_UNDER_TEST "::" CLASS_UNDER_TEST " bytes{allocator};")
+        {
+            _byte_storage<always_equal_allocator, EmbeddedSize> bytes{allocator};
+
+            THEN("allocator is copied into bytes")
+            {
+                REQUIRE(bytes.get_allocator().id == allocator.id);
+                REQUIRE(stats.copied == 1);
+            }
+            THEN("bytes is empty")
+            {
+                REQUIRE(bytes.size() == 0);
+            }
+            THEN("the data of bytes is not in allocated storage")
+            {
+                REQUIRE_FALSE(bytes.is_allocated());
+            }
+            THEN("the capacity of bytes is EmbeddedSize")
+            {
+                REQUIRE(bytes.capacity() == EmbeddedSize);
+            }
+        }
+
+        AND_GIVEN("an unsigned count")
+        {
+            WHEN(CLASS_UNDER_TEST "::" CLASS_UNDER_TEST " bytes{count, allocator};")
+            {
+                AND_WHEN("count > EmbeddedSize")
+                {
+                    static constexpr std::size_t count = EmbeddedSize + 1;
+                    _byte_storage<always_equal_allocator, EmbeddedSize> bytes{count, allocator};
+
+                    THEN("allocator is copied into bytes")
+                    {
+                        REQUIRE(bytes.get_allocator().id == allocator.id);
+                        REQUIRE(stats.copied == 1);
+                    }
+                    THEN("allocation took place")
+                    {
+                        REQUIRE(stats.allocated == 1);
+                    }
+                    THEN("the size of bytes is count")
+                    {
+                        REQUIRE(bytes.size() == count);
+                    }
+                    THEN("the data of bytes is in allocated storage")
+                    {
+                        REQUIRE(bytes.is_allocated());
+                    }
+                    THEN("the data pointer is not within the bytes object")
+                    {
+                        REQUIRE_THAT(bytes.data(), !PointsWithin(bytes));
+                    }
+                    THEN("the capacity of bytes is at least count")
+                    {
+                        REQUIRE(bytes.capacity() >= count);
+                    }
+                }
+                AND_WHEN("0 < count <= EmbeddedSize")
+                {
+                    static constexpr std::size_t count = EmbeddedSize;
+                    _byte_storage<always_equal_allocator, EmbeddedSize> bytes{count, allocator};
+
+                    THEN("allocator is copied into bytes")
+                    {
+                        REQUIRE(bytes.get_allocator().id == allocator.id);
+                        REQUIRE(stats.copied == 1);
+                    }
+                    THEN("no allocation took place")
+                    {
+                        REQUIRE(stats.allocated == 0);
+                    }
+                    THEN("the size of bytes is count")
+                    {
+                        REQUIRE(bytes.size() == count);
+                    }
+                    THEN("the data of bytes is not in allocated storage")
+                    {
+                        REQUIRE_FALSE(bytes.is_allocated());
+                    }
+                    THEN("the data pointer is within the bytes object")
+                    {
+                        REQUIRE_THAT(bytes.data(), PointsWithin(bytes));
+                    }
+                    THEN("the capacity of bytes is EmbeddedSize")
+                    {
+                        REQUIRE(bytes.capacity() == EmbeddedSize);
+                    }
+                }
+            }
+        }
+    }
+
+    GIVEN(CLASS_UNDER_TEST " other;")
+    {
+        WHEN(CLASS_UNDER_TEST "::" CLASS_UNDER_TEST " bytes{other};")
+        {
+            AND_WHEN("always")
+            {
+                _byte_storage<always_equal_allocator, EmbeddedSize> other{EmbeddedSize, allocator};
+                other.assign(TestData.data(), other.size());
+
+                _byte_storage<always_equal_allocator, EmbeddedSize> bytes{other};
+
+                THEN("allocator.select_on_container_copy_construction() is called")
+                {
+                    REQUIRE(stats.selected == 1);
+                }
+                THEN("bytes and other compare equal")
+                {
+                    REQUIRE_THAT(bytes, EqualsByteRange(other));
+                }
+            }
+            AND_WHEN("other.is_allocated()")
+            {
+                _byte_storage<always_equal_allocator, EmbeddedSize> other{EmbeddedSize + 1,
+                                                                          allocator};
+                other.assign(TestData.data(), other.size());
+                REQUIRE(other.is_allocated());
+
+                other.get_allocator().start_tracking();
+                _byte_storage<always_equal_allocator, EmbeddedSize> bytes{other};
+
+                THEN("the data of bytes is also in allocated storage")
+                {
+                    REQUIRE(bytes.is_allocated());
+                }
+                THEN("an allocation has taken place")
+                {
+                    REQUIRE(stats.allocated == 1);
+                }
+                THEN("the capacity of bytes is at least the capacity of other")
+                {
+                    REQUIRE(bytes.capacity() >= other.capacity());
+                }
+            }
+        }
+        WHEN(CLASS_UNDER_TEST "::" CLASS_UNDER_TEST " bytes{std::move(other)};")
+        {
+            AND_WHEN("always")
+            {
+                _byte_storage<always_equal_allocator, EmbeddedSize> other{EmbeddedSize, allocator};
+                other.assign(TestData.data(), other.size());
+
+                auto const old_id = other.get_allocator().id;
+                auto const old_size = other.size();
+                _byte_storage<always_equal_allocator, EmbeddedSize> bytes{std::move(other)};
+
+                THEN("the allocator of other is moved to bytes")
+                {
+                    REQUIRE(stats.moved == 1);
+                    REQUIRE(bytes.get_allocator().id == old_id);
+                }
+                THEN("bytes has the size other had")
+                {
+                    REQUIRE(bytes.size() == old_size);
+
+                    AND_THEN("bytes has the contents other had")
+                    {
+                        REQUIRE_THAT(bytes, EqualsByteRange(TestData, old_size));
+                    }
+                }
+                THEN("other is empty")
+                {
+                    REQUIRE(other.size() == 0);
+                }
+            }
+            AND_WHEN("other.is_allocated()")
+            {
+                _byte_storage<always_equal_allocator, EmbeddedSize> other{EmbeddedSize + 1,
+                                                                          allocator};
+                other.assign(TestData.data(), other.size());
+                REQUIRE(other.is_allocated());
+
+                auto const* old_data = other.data();
+                _byte_storage<always_equal_allocator, EmbeddedSize> bytes{std::move(other)};
+
+                THEN("bytes has the data pointer other had")
+                {
+                    REQUIRE(bytes.data() == old_data);
+                }
+                THEN("other has no allocated data anymore")
+                {
+                    REQUIRE_FALSE(other.is_allocated());
+                }
+            }
+        }
+
+        AND_GIVEN("an allocator")
+        {
+            WHEN(CLASS_UNDER_TEST "::" CLASS_UNDER_TEST " bytes{other, allocator};")
+            {
+                _byte_storage<always_equal_allocator, EmbeddedSize> other{EmbeddedSize, allocator};
+                other.assign(TestData.data(), other.size());
+
+                allocator.start_tracking();
+                _byte_storage<always_equal_allocator, EmbeddedSize> bytes{other, allocator};
+
+                THEN("bytes has allocator")
+                {
+                    REQUIRE(bytes.get_allocator().id == allocator.id);
+
+                    AND_THEN("by copying")
+                    {
+                        REQUIRE(stats.copied == 1);
+                    }
+                }
+            }
+            WHEN(CLASS_UNDER_TEST "::" CLASS_UNDER_TEST " bytes{std::move(other), allocator};")
+            {
+                AND_WHEN("always")
+                {
+                    _byte_storage<always_equal_allocator, EmbeddedSize> other{EmbeddedSize,
+                                                                              allocator};
+                    other.assign(TestData.data(), other.size());
+
+                    allocator.start_tracking();
+                    _byte_storage<always_equal_allocator, EmbeddedSize> bytes{std::move(other),
+                                                                              allocator};
+
+                    THEN("bytes has allocator")
+                    {
+                        REQUIRE(bytes.get_allocator().id == allocator.id);
+
+                        AND_THEN("by copying")
+                        {
+                            REQUIRE(stats.copied == 1);
+                        }
+                    }
+                    THEN("other is empty")
+                    {
+                        REQUIRE(other.size() == 0);
+                    }
+                    THEN("other has no allocated data")
+                    {
+                        REQUIRE_FALSE(other.is_allocated());
+                    }
+                }
+                AND_WHEN("other.is_allocated()")
+                {
+                    AND_WHEN("other.get_allocator() != allocator")
+                    {
+                        allocator_stats other_stats;
+                        not_always_equal_allocator other_allocator{&stats, DistinctId};
+                        not_always_equal_allocator allocator{&stats, DistinctId + 1};
+
+                        _byte_storage<not_always_equal_allocator, EmbeddedSize> other{
+                            EmbeddedSize + 1, other_allocator};
+                        REQUIRE(other.is_allocated());
+                        other.assign(TestData.data(), other.size());
+
+                        auto const old_size = other.size();
+                        auto const old_capacity = other.capacity();
+                        allocator.start_tracking();
+                        other_allocator.start_tracking();
+                        decltype(other) bytes{std::move(other), allocator};
+
+                        THEN("the new data is allocated")
+                        {
+                            REQUIRE(allocator.stats->allocated == 1);
+                        }
+                        THEN("the old data is deallocated")
+                        {
+                            REQUIRE(other_allocator.stats->deallocated == 1);
+                        }
+                        THEN("bytes has the size other had")
+                        {
+                            REQUIRE(bytes.size() == old_size);
+                            THEN("the data is copied to bytes")
+                            {
+                                REQUIRE_THAT(bytes, EqualsByteRange(TestData, bytes.size()));
+                            }
+                        }
+                        THEN("the capacity of bytes is at least the capacity other had")
+                        {
+                            REQUIRE(bytes.capacity() >= old_capacity);
+                        }
+                    }
+                    AND_WHEN(
+                        "!allocator_traits::is_always_equal && other.get_allocator() == allocator")
+                    {
+                        not_always_equal_allocator allocator{&stats, DistinctId};
+
+                        _byte_storage<not_always_equal_allocator, EmbeddedSize> other{
+                            EmbeddedSize + 1, allocator};
+                        other.assign(TestData.data(), other.size());
+                        REQUIRE(other.is_allocated());
+
+                        auto const* old_data = other.data();
+                        auto const old_capacity = other.capacity();
+                        allocator.start_tracking();
+                        _byte_storage<not_always_equal_allocator, EmbeddedSize> bytes{
+                            std::move(other), allocator};
+
+                        THEN("bytes has the data pointer other had")
+                        {
+                            REQUIRE(bytes.data() == old_data);
+                        }
+                        THEN("bytes has the capacity other had")
+                        {
+                            REQUIRE(bytes.capacity() == old_capacity);
+                        }
+                    }
+                    AND_WHEN("allocator_traits::is_always_equal")
+                    {
+                        _byte_storage<always_equal_allocator, EmbeddedSize> other{EmbeddedSize + 1,
+                                                                                  allocator};
+                        other.assign(TestData.data(), other.size());
+                        REQUIRE(other.is_allocated());
+
+                        auto const* old_data = other.data();
+                        auto const old_capacity = other.capacity();
+                        allocator.start_tracking();
+                        _byte_storage<always_equal_allocator, EmbeddedSize> bytes{std::move(other),
+                                                                                  allocator};
+
+                        THEN("bytes has the data pointer other had")
+                        {
+                            REQUIRE(bytes.data() == old_data);
+                        }
+                        THEN("bytes has the capacity other had")
+                        {
+                            REQUIRE(bytes.capacity() == old_capacity);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    GIVEN(CLASS_UNDER_TEST " bytes;")
+    {
+        WHEN(CLASS_UNDER_TEST "::~" CLASS_UNDER_TEST "();")
+        {
+            AND_WHEN("bytes.is_allocated()")
+            {
+                {
+                    _byte_storage<always_equal_allocator, EmbeddedSize> bytes{EmbeddedSize + 1,
+                                                                              allocator};
+                    REQUIRE(bytes.is_allocated());
+                    // deconstructor is called
+                }
+
+                THEN("the data is deallocated")
+                {
+                    REQUIRE(stats.deallocated == 1);
+                }
+            }
+            AND_WHEN("!bytes.is_allocated()")
+            {
+                {
+                    _byte_storage<always_equal_allocator, EmbeddedSize> bytes{EmbeddedSize,
+                                                                              allocator};
+                    REQUIRE_FALSE(bytes.is_allocated());
+                    // deconstructor is called
+                }
+
+                THEN("no deallocation takes places")
+                {
+                    REQUIRE(stats.deallocated == 0);
+                }
+            }
         }
     }
 }

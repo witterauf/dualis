@@ -798,7 +798,7 @@ public:
     {
         if (size > capacity())
         {
-            m_allocated.data = allocator_traits::allocate(m_allocated.allocator(), size);
+            m_allocated.data = allocator_traits::allocate(get_allocator(), size);
             m_data.capacity = size;
         }
     }
@@ -816,16 +816,9 @@ public:
     }
 
     constexpr _byte_storage(const _byte_storage& other)
-        : m_allocated{allocator_traits::select_on_container_copy_construction(
-              other.get_allocator())}
-        , m_length{other.m_length}
+        : _byte_storage{
+              other, allocator_traits::select_on_container_copy_construction(other.get_allocator())}
     {
-        if (other.is_allocated())
-        {
-            m_allocated.data = allocator_traits::allocate(get_allocator(), other.capacity());
-            m_data.capacity = other.capacity();
-        }
-        copy_bytes(data(), other.data(), other.size());
     }
 
     constexpr _byte_storage(_byte_storage&& other, const allocator_type& allocator)
@@ -841,7 +834,7 @@ public:
             }
             else
             {
-                if (!(other.get_allocator() == get_allocator()))
+                if (other.get_allocator() != get_allocator())
                 {
                     m_allocated.data =
                         allocator_traits::allocate(get_allocator(), other.capacity());
@@ -980,16 +973,16 @@ public:
         std::swap(m_length, other.m_length);
         if constexpr (is_embedded_enabled())
         {
-            if (!is_allocated())
-            {
-                std::byte temp[BufferSize];
-                copy_bytes(temp, m_data.local, BufferSize);
-                copy_bytes(m_data.local, other.m_data.local, BufferSize);
-                copy_bytes(other.m_data.local, temp, BufferSize);
-                return;
-            }
+            std::byte temp[BufferSize];
+            copy_bytes(temp, m_data.local, BufferSize);
+            copy_bytes(m_data.local, other.m_data.local, BufferSize);
+            copy_bytes(other.m_data.local, temp, BufferSize);
+            return;
         }
-        std::swap(m_data.capacity, other.m_data.capacity);
+        else
+        {
+            std::swap(m_data.capacity, other.m_data.capacity);
+        }
     }
 
     // Resizes the storage without initializing its content and returns the pointer to the new
