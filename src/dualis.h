@@ -1368,7 +1368,7 @@ public:
 
     constexpr void shrink_to_fit()
     {
-        if (capacity() > size() && capacity() > BufferSize())
+        if (capacity() > size() && capacity() > BufferSize)
         {
             auto* new_data = allocator_traits::allocate(m_allocated.allocator(), size());
             std::memcpy(new_data, m_data.local, m_length);

@@ -1,15 +1,16 @@
-add_executable(dualis-unit-tests
+add_executable(dualis-test-containers
   containers.cc
-  rw.cc
+  matchers.h
+  mock_allocator.h
 )
-target_link_libraries(dualis-unit-tests
+target_link_libraries(dualis-test-containers
   PRIVATE
     dualis::dualis
     Catch2::Catch2WithMain
 )
-target_compile_options(dualis-unit-tests
+target_compile_options(dualis-test-containers
   INTERFACE
     $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -pedantic -Werror>
 )
-add_test(NAME dualis-unit-tests COMMAND dualis-unit-tests)
+add_test(NAME dualis-test-containers COMMAND dualis-test-containers)
