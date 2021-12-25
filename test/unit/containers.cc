@@ -897,3 +897,97 @@ SCENARIO(CLASS_UNDER_TEST ": construction and deconstruction", "[containers]")
         }
     }
 }
+
+SCENARIO(CLASS_UNDER_TEST ": inserting and erasing elements", "[containers]")
+{
+    using namespace dualis::detail;
+    allocator_stats stats;
+    always_equal_allocator allocator{&stats};
+    static constexpr std::size_t EmbeddedSize = 16;
+    using byte_storage = _byte_storage<always_equal_allocator, EmbeddedSize>;
+    std::array<std::byte, EmbeddedSize + 2> TestData{
+        0x10_b, 0x11_b, 0x12_b, 0x13_b, 0x10_b, 0x11_b, 0x12_b, 0x13_b, 0x10_b,
+        0x11_b, 0x12_b, 0x13_b, 0x10_b, 0x11_b, 0x12_b, 0x13_b, 0x33_b, 0x34_b};
+
+    GIVEN(CLASS_UNDER_TEST " bytes{count, allocator}; // count > 2")
+    {
+        byte_storage bytes{3, allocator};
+        bytes.assign(TestData.data(), bytes.size());
+
+        WHEN("bytes.append(append_count, APPENDER);")
+        {
+            AND_WHEN("bytes.size() + append_count <= bytes.capacity()")
+            {
+                const std::size_t append_count = EmbeddedSize - bytes.size();
+
+                std::byte* passed_data{nullptr};
+                auto const old_size = bytes.size();
+                auto const old_data = bytes.data();
+                bytes.get_allocator().start_tracking();
+
+                bytes.append(append_count, [&passed_data](std::byte* data) { passed_data = data; });
+
+                THEN("the data pointer of bytes is not modified")
+                {
+                    REQUIRE(bytes.data() == old_data);
+                }
+                THEN("bytes is append_count elements longer")
+                {
+                    REQUIRE(bytes.size() == old_size + append_count);
+                }
+                THEN("APPENDER is passed a pointer to the end of the data")
+                {
+                    REQUIRE(passed_data == bytes.data() + old_size);
+                }
+                THEN("no allocation takes place")
+                {
+                    REQUIRE(stats.allocated == 0);
+                }
+                THEN("no deallocation takes place")
+                {
+                    REQUIRE(stats.deallocated == 0);
+                }
+            }
+            AND_WHEN("bytes.size() + append_count > bytes.capacity()")
+            {
+                AND_WHEN("!bytes.is_allocated()")
+                {
+                    const auto append_count = (EmbeddedSize - bytes.size()) + 1;
+
+                    std::byte* passed_data{nullptr};
+                    auto const old_size = bytes.size();
+                    auto const old_data = bytes.data();
+                    bytes.get_allocator().start_tracking();
+
+                    bytes.append(append_count,
+                                 [&passed_data](std::byte* data) { passed_data = data; });
+
+                    THEN("new data is allocated")
+                    {
+                        REQUIRE(stats.allocated == 1);
+                    }
+                    THEN("the data pointer of bytes changes")
+                    {
+                        REQUIRE(bytes.data() != old_data);
+                    }
+                    THEN("the old contents is copied over")
+                    {
+                        REQUIRE(std::memcmp(bytes.data(), TestData.data(), old_size) == 0);
+                    }
+                    THEN("the new capacity is at least the new size")
+                    {
+                        REQUIRE(bytes.capacity() >= bytes.size());
+                    }
+                    THEN("bytes is append_count elements longer")
+                    {
+                        REQUIRE(bytes.size() == old_size + append_count);
+                    }
+                    THEN("APPENDER is passed a pointer to the end of the data")
+                    {
+                        REQUIRE(passed_data == bytes.data() + old_size);
+                    }
+                }
+            }
+        }
+    }
+}

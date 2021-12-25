@@ -1003,31 +1003,26 @@ public:
         }
     }
 
-    template <class Functor> constexpr void resize(size_type count, Functor f)
+    constexpr void reserve(size_type count)
     {
         if (count > capacity())
         {
-            auto* new_data = allocator_traits::allocate(get_allocator(), count);
-            if (is_allocated())
-            {
-                copy_bytes(new_data, m_allocated.data, size());
-                allocator_traits::deallocate(get_allocator(), m_allocated.data, m_data.capacity);
-            }
-            else
-            {
-                if constexpr (is_embedded_enabled())
-                {
-                    copy_bytes(new_data, m_data.local, size());
-                }
-            }
-            m_allocated.data = new_data;
-            m_data.capacity = count;
+            auto const new_capacity = _compute_spare_capacity(
+                count, capacity(), allocator_traits::max_size(get_allocator()));
+            _reallocate(new_capacity, get_allocator());
         }
-        if (count > m_length)
+    }
+
+    constexpr void shrink_to_fit()
+    {
+        if (is_allocated() && capacity() > size())
         {
-            f(data(), count - m_length);
+            auto* new_data = allocator_traits::allocate(get_allocator(), size());
+            copy_bytes(new_data, m_allocated.data, size());
+            allocator_traits::deallocate(get_allocator(), m_allocated.data, capacity());
+            m_allocated.data = new_data;
+            m_data.local = size();
         }
-        m_length = count;
     }
 
     [[nodiscard]] constexpr auto get_allocator() noexcept -> allocator_type&
@@ -1079,7 +1074,91 @@ public:
         return const_cast<_byte_storage*>(this)->data();
     }
 
+    [[nodiscard]] constexpr auto max_size() const -> size_type
+    {
+        return allocator_traits::max_size(get_allocator());
+    }
+
+    template <class Inserter>
+    constexpr void insert(size_type index, size_type count, Inserter inserter)
+    {
+        auto const new_size = size() + count;
+        if (new_size > capacity())
+        {
+            auto const new_capacity =
+                _compute_spare_capacity(new_size, m_data.capacity, max_size());
+            auto* new_data = allocator_traits::allocate(get_allocator(), new_capacity);
+            copy_bytes(new_data, m_allocated.data, index);
+            inserter(new_data + index);
+            copy_bytes(new_data + index + count, m_allocated.data + index, size() - index);
+            _replace_data(new_data, new_capacity);
+        }
+        else
+        {
+            copy_bytes(data() + index + count, data() + index, count);
+            inserter(data() + index);
+        }
+        m_length = new_size;
+    }
+
+    template <class Functor> constexpr void resize(size_type count, Functor f)
+    {
+        if (count > capacity())
+        {
+            auto* new_data = allocator_traits::allocate(get_allocator(), count);
+            if (is_allocated())
+            {
+                copy_bytes(new_data, m_allocated.data, size());
+                allocator_traits::deallocate(get_allocator(), m_allocated.data, m_data.capacity);
+            }
+            else
+            {
+                if constexpr (is_embedded_enabled())
+                {
+                    copy_bytes(new_data, m_data.local, size());
+                }
+            }
+            m_allocated.data = new_data;
+            m_data.capacity = count;
+        }
+        if (count > m_length)
+        {
+            f(data(), count - m_length);
+        }
+        m_length = count;
+    }
+
+    constexpr void erase(size_type index, size_type count)
+    {
+        copy_bytes(data() + index + count, data() + index, count);
+        m_length -= count;
+    }
+
+    template <class Appender> constexpr void append(size_type count, Appender appender)
+    {
+        auto const new_size = size() + count;
+        if (new_size > capacity())
+        {
+            auto const new_capacity = _compute_spare_capacity(new_size, capacity(), max_size());
+            auto* new_data = allocator_traits::allocate(m_allocated.allocator(), new_capacity);
+            copy_bytes(new_data, data(), size());
+            _replace_data(new_data, new_capacity);
+        }
+        appender(data() + size());
+        m_length = new_size;
+    }
+
 private:
+    constexpr void _replace_data(std::byte* new_data, size_type new_capacity)
+    {
+        if (is_allocated())
+        {
+            allocator_traits::deallocate(get_allocator(), m_allocated.data, m_data.capacity);
+        }
+        m_allocated.data = new_data;
+        m_data.capacity = new_capacity;
+    }
+
     constexpr void _destroy()
     {
         if (is_allocated())
@@ -1126,7 +1205,9 @@ private:
 
 } // namespace detail
 
-template <class Allocator = std::allocator<std::byte>> class _small_byte_vector
+template <class Allocator = std::allocator<std::byte>,
+          typename Allocator::size_type EmbeddedSize = sizeof(typename Allocator::size_type) * 2>
+class _small_byte_vector
 {
 public:
     using allocator_type = Allocator;
@@ -1140,150 +1221,65 @@ public:
     using reverse_iterator = std::reverse_iterator<iterator>;
     using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
-    static constexpr size_type BufferSize = 16;
     static constexpr auto npos{static_cast<size_type>(-1)};
 
-    constexpr _small_byte_vector() noexcept(noexcept(Allocator{}))
-        : m_allocated{Allocator{}}
+    constexpr _small_byte_vector() noexcept(noexcept(allocator_type{}))
+        : m_storage{allocator_type{}}
     {
     }
 
-    constexpr explicit _small_byte_vector(const Allocator& alloc) noexcept
-        : m_allocated{alloc}
+    constexpr explicit _small_byte_vector(const allocator_type& allocator) noexcept
+        : m_storage{allocator}
     {
     }
 
     constexpr _small_byte_vector(const size_type count, const value_type& value,
-                                 const Allocator& alloc = Allocator{})
-        : m_allocated{alloc}
-        , m_length{count}
+                                 const allocator_type& allocator = allocator_type{})
+        : m_storage{count, allocator}
     {
-        construct(count);
-        std::memset(data(), std::to_integer<uint8_t>(value), count);
+        std::memset(m_storage.data(), std::to_integer<uint8_t>(value), count);
     }
 
-    constexpr _small_byte_vector(size_type count, const Allocator& alloc = Allocator{})
-        : m_allocated{alloc}
-        , m_length{count}
+    constexpr _small_byte_vector(size_type count,
+                                 const allocator_type& allocator = allocator_type{})
+        : m_storage{count, allocator}
     {
-        construct(count);
     }
 
     constexpr _small_byte_vector(const _small_byte_vector& other)
-        : m_allocated{allocator_traits::select_on_container_copy_construction(
-              other.get_allocator())}
-        , m_length{other.size()}
+        : m_storage{other.m_storage}
     {
-        if (other.is_allocated())
-        {
-            m_allocated.data =
-                allocator_traits::allocate(m_allocated.allocator(), other.capacity());
-            m_data.capacity = other.capacity();
-        }
-        std::memcpy(data(), other.data(), other.size());
     }
 
-    constexpr _small_byte_vector(const _small_byte_vector& other, const Allocator& alloc)
-        : m_allocated{alloc}
-        , m_length{other.size()}
+    constexpr _small_byte_vector(const _small_byte_vector& other, const allocator_type& allocator)
+        : m_storage{other.m_storage, allocator}
     {
-        if (other.is_allocated())
-        {
-            m_allocated.data =
-                allocator_traits::allocate(m_allocated.allocator(), other.capacity());
-            m_data.capacity = other.capacity();
-        }
-        std::memcpy(data(), other.data(), other.size());
     }
 
     constexpr _small_byte_vector(_small_byte_vector&& other)
-        : m_allocated{std::move(other.m_allocated.allocator())}
-        , m_length{other.size()}
+        : m_storage{std::move(other.m_storage)}
     {
-        m_allocated.data = other.m_allocated.data;
-        if (other.is_allocated())
-        {
-            m_data.capacity = other.m_data.capacity;
-        }
-        else
-        {
-            std::memcpy(m_data.local, other.m_data.local, size());
-        }
-
-        // Bring other into valid and empty state
-        other.m_allocated.data = nullptr;
-        other.m_length = 0;
     }
 
     constexpr _small_byte_vector(std::initializer_list<std::byte> init,
-                                 const Allocator& alloc = Allocator())
-        : m_allocated{alloc}
-        , m_length{init.size()}
+                                 const allocator_type& allocator = allocator_type())
+        : m_storage{init.size(), allocator}
     {
-        construct(init.size());
-        std::memcpy(data(), init.begin(), init.size());
-    }
-
-    constexpr ~_small_byte_vector()
-    {
-        if (is_allocated())
-        {
-            allocator_traits::deallocate(m_allocated.allocator(), m_allocated.data,
-                                         m_data.capacity);
-        }
+        copy_bytes(data(), init.begin(), init.size());
     }
 
     constexpr auto operator=(const _small_byte_vector& rhs) -> _small_byte_vector&
     {
         if (this != std::addressof(rhs))
         {
-            if constexpr (allocator_traits::propagate_on_container_copy_assignment::value)
-            {
-                if constexpr (allocator_traits::is_always_equal::value)
-                {
-                    // Doesn't matter if copy of allocator deallocates this instance's allocation.
-                    m_allocated.assign(rhs.m_allocated.allocator());
-                    return assign(rhs.data(), rhs.size());
-                }
-                else
-                {
-                    if (rhs.size() > capacity())
-                    {
-                        _destroy();
-                        m_allocated.assign(rhs.m_allocated.allocator());
-                        m_allocated.data =
-                            allocator_traits::allocate(m_allocated.allocator(), rhs.capacity());
-                        m_data.capacity = rhs.capacity();
-                    }
-                    else
-                    {
-                        m_allocated.assign(rhs.m_allocated.allocator());
-                    }
-                    std::memcpy(data(), rhs.data(), rhs.size());
-                    m_length = rhs.size();
-                }
-            }
-            else
-            {
-                return assign(rhs.data(), rhs.size());
-            }
+            m_storage.assign(rhs.m_storage);
         }
         return *this;
     }
 
     constexpr auto assign(const std::byte* bytes, const size_type count) -> _small_byte_vector&
     {
-        if (count > capacity())
-        {
-            _destroy();
-            // This if is only entered if allocation is actually necessary.
-            // (Since the minimum capacity is BufferSize.)
-            auto const new_capacity = count + count / 2;
-            m_allocated.data = allocator_traits::allocate(m_allocated.allocator(), new_capacity);
-            m_data.capacity = new_capacity;
-        }
-        std::memcpy(data(), bytes, count);
-        m_length = count;
+        m_storage.assign(bytes, count);
         return *this;
     }
 
@@ -1291,63 +1287,34 @@ public:
     {
         if (this != std::addressof(rhs))
         {
-            _destroy();
-
-            if constexpr (allocator_traits::is_always_equal::value)
-            {
-                // No need to move, allocators are considered equal anyways.
-                _take_contents(std::move(rhs));
-            }
-            else if constexpr (allocator_traits::propagate_on_container_move_assignment::value)
-            {
-                // Only need to move allocator if they are not considered equal.
-                // (Equality means they can interchangeably allocate/deallocate memory.)
-                if (m_allocated.allocator() != rhs.m_allocated.allocation())
-                {
-                    m_allocated.assign(std::move(rhs.m_allocated.allocator()));
-                }
-                _take_contents(std::move(rhs));
-            }
-            else
-            {
-                if (m_allocated.allocator() == rhs.m_allocated.allocator())
-                {
-                    _take_contents(std::move(rhs));
-                }
-                else
-                {
-                    // Allocator should not be moved, so we need to use the instance already in this
-                    // object. Since they are not considered equal, the data must be copied.
-                    return assign(rhs.data(), rhs.size());
-                }
-            }
+            m_storage.assign(std::move(rhs.m_storage));
         }
         return *this;
     }
 
     constexpr auto get_allocator() const noexcept -> allocator_type
     {
-        return m_allocated.allocator();
+        return m_storage.get_allocator();
     }
 
     [[nodiscard]] constexpr bool empty() const
     {
-        return m_length == 0;
+        return m_storage.size() == 0;
     }
 
     [[nodiscard]] constexpr auto size() const -> size_type
     {
-        return m_length;
+        return m_storage.size();
     }
 
     [[nodiscard]] constexpr auto max_size() const -> size_type
     {
-        return allocator_traits::max_size(get_allocator());
+        return m_storage.max_size();
     }
 
     [[nodiscard]] constexpr auto capacity() const noexcept -> size_type
     {
-        return is_allocated() ? m_data.capacity : BufferSize;
+        return m_storage.capacity();
     }
 
     constexpr void reserve(size_type new_cap)
@@ -1356,83 +1323,62 @@ public:
         {
             throw std::length_error{"new capacity exceeds max_size"};
         }
-        if (new_cap > capacity()) // necessarily > BufferSize then
-        {
-            auto* new_data = allocator_traits::allocate(m_allocated.allocator(), new_cap);
-            std::memcpy(new_data, m_data.local, m_length);
-            allocator_traits::deallocate(m_allocated.allocator(), m_data.local, m_data.capacity);
-            m_data.local = new_data;
-            m_data.capacity = new_cap;
-        }
+        m_storage.reserve(new_cap);
     }
 
     constexpr void shrink_to_fit()
     {
-        if (capacity() > size() && capacity() > BufferSize)
-        {
-            auto* new_data = allocator_traits::allocate(m_allocated.allocator(), size());
-            std::memcpy(new_data, m_data.local, m_length);
-            allocator_traits::deallocate(m_allocated.allocator(), m_data.local, m_data.capacity);
-            m_data.local = new_data;
-            m_data.capacity = size();
-        }
+        m_storage.shrink_to_fit();
     }
 
     [[nodiscard]] constexpr auto operator[](size_type pos) -> std::byte&
     {
-        return data()[pos];
+        return m_storage.data()[pos];
     }
 
     [[nodiscard]] constexpr auto operator[](size_type pos) const -> std::byte
     {
-        return data()[pos];
+        return m_storage.data()[pos];
     }
 
     [[nodiscard]] constexpr auto at(size_type pos) -> std::byte&
     {
-        return data()[pos];
+        return m_storage.data()[pos];
     }
 
     [[nodiscard]] constexpr auto at(size_type pos) const -> std::byte
     {
-        return data()[pos];
+        return m_storage.data()[pos];
     }
 
     [[nodiscard]] constexpr auto front() -> std::byte&
     {
-        return data()[0];
+        return m_storage.data()[0];
     }
 
     [[nodiscard]] constexpr auto front() const -> std::byte
     {
-        return data()[0];
+        return m_storage.data()[0];
     }
 
     [[nodiscard]] constexpr auto back() -> std::byte&
     {
-        return data()[size() - 1];
+        return m_storage.data()[m_storage.size() - 1];
     }
 
     [[nodiscard]] constexpr auto back() const -> std::byte
     {
-        return data()[size() - 1];
+        return m_storage.data()[m_storage.size() - 1];
     }
 
     [[nodiscard]] constexpr auto data() -> std::byte*
     {
-        if (is_allocated())
-        {
-            return m_allocated.data;
-        }
-        else
-        {
-            return m_data.local;
-        }
+        return m_storage.data();
     }
 
     [[nodiscard]] constexpr auto data() const -> const std::byte*
     {
-        return const_cast<_small_byte_vector&>(*this).data();
+        return m_storage.data();
     }
 
     [[nodiscard]] constexpr auto begin() noexcept -> iterator
@@ -1497,13 +1443,12 @@ public:
 
     constexpr void clear() noexcept
     {
-        // capacity (and thus allocation) is left unchanged
-        m_length = 0;
+        m_storage.clear();
     }
 
     constexpr auto insert(size_type index, size_type count, std::byte value) -> _small_byte_vector&
     {
-        _insert(index, count, [count, value](std::byte* data) {
+        m_storage.insert(index, count, [count, value](std::byte* data) {
             std::memset(data, std::to_integer<int>(value), count);
         });
         return *this;
@@ -1512,15 +1457,17 @@ public:
     constexpr auto insert(size_type index, const std::byte* bytes, size_type count)
         -> _small_byte_vector&
     {
-        _insert(index, count, [bytes, count](std::byte* data) { std::memcpy(data, bytes, count); });
+        m_storage.insert(index, count,
+                         [bytes, count](std::byte* data) { std::memcpy(data, bytes, count); });
         return *this;
     }
 
     template <readable_bytes Bytes>
     constexpr auto insert(size_type index, const Bytes& bytes) -> _small_byte_vector&
     {
-        _insert(index, bytes.size(),
-                [&bytes](std::byte* data) { std::memcpy(data, bytes.data(), bytes.size()); });
+        m_storage.insert(index, bytes.size(), [&bytes](std::byte* data) {
+            std::memcpy(data, bytes.data(), bytes.size());
+        });
         return *this;
     }
 
@@ -1561,15 +1508,13 @@ public:
 
     constexpr auto insert(const_iterator pos, std::initializer_list<std::byte> ilist) -> iterator
     {
-        reserve(size() + ilist.size());
+        m_storage.reserve(size() + ilist.size());
         return insert(pos, ilist.begin(), ilist.end());
     }
 
     constexpr auto erase(size_type index = 0, size_type count = npos) -> _small_byte_vector&
     {
-        count = count == npos ? size() - index : count;
-        std::memcpy(data() + index + count, data() + index, count);
-        m_length -= count;
+        m_storage.erase(index, count == npos ? size() - index : count);
         return *this;
     }
 
@@ -1590,17 +1535,17 @@ public:
 
     constexpr void push_back(std::byte value)
     {
-        _append(1, [value](std::byte* dest) { *dest = value; });
+        m_storage.append(1, [value](std::byte* dest) { *dest = value; });
     }
 
     constexpr void pop_back()
     {
-        m_length -= 1;
+        m_storage.resize(m_storage.size() - 1);
     }
 
     constexpr auto append(size_type count, std::byte value) -> _small_byte_vector&
     {
-        _append(count, [value, count](std::byte* dest) {
+        m_storage.append(count, [value, count](std::byte* dest) {
             std::memset(dest, std::to_integer<int>(value), count);
         });
         return *this;
@@ -1608,7 +1553,8 @@ public:
 
     constexpr auto append(const std::byte* bytes, size_type count) -> _small_byte_vector&
     {
-        _append(count, [bytes, count](std::byte* dest) { std::memcpy(dest, bytes, count); });
+        m_storage.append(count,
+                         [bytes, count](std::byte* dest) { copy_bytes(dest, bytes, count); });
         return *this;
     }
 
@@ -1659,39 +1605,21 @@ public:
 
     constexpr void resize(size_type count)
     {
-        if (count > size())
-        {
-            _append(count - size(), [](const std::byte* data) {});
-        }
-        else
-        {
-            m_length = count;
-        }
+        m_storage.resize(count, [](std::byte*, size_type) {});
     }
 
     constexpr void resize(size_type count, std::byte value)
     {
-        if (count > size())
-        {
-            append(count - size(), value);
-        }
-        else
-        {
-            m_length = count;
-        }
+        m_storage.resize(count, [value](std::byte* data, size_type count) {
+            std::memset(data, std::to_integer<int>(value), count);
+        });
     }
 
     constexpr void swap(_small_byte_vector& other) noexcept
     {
         if (this != std::addressof(other))
         {
-            std::swap(m_length, other.m_length);
-            m_allocated.swap(other.m_allocated);
-
-            std::byte temporary[BufferSize];
-            std::memcpy(temporary, other.m_data.local, BufferSize);
-            std::memcpy(other.m_data.local, m_data.local, BufferSize);
-            std::memcpy(m_data.local, temporary, BufferSize);
+            m_storage.swap(other.m_storage);
         }
     }
 
@@ -1727,107 +1655,7 @@ public:
     }
 
 private:
-    [[nodiscard]] constexpr bool is_allocated() const
-    {
-        if constexpr (BufferSize > 0)
-        {
-            return m_allocated.data != nullptr;
-        }
-        else
-        {
-            return true;
-        }
-    }
-
-    constexpr void construct(const size_type size)
-    {
-        if (size > BufferSize)
-        {
-            m_allocated.data = allocator_traits::allocate(m_allocated.allocator(), size);
-        }
-    }
-
-    constexpr void _take_contents(_small_byte_vector&& rhs)
-    {
-        // Expects(m_allocated.allocator() == rhs.m_allocated.allocator())
-        m_length = rhs.m_length;
-        if (rhs.is_allocated())
-        {
-            m_allocated.data = rhs.m_allocated.data;
-            m_data.capacity = rhs.capacity();
-        }
-        else
-        {
-            m_allocated.data = nullptr;
-            std::memcpy(m_data.local, rhs.m_data.local, rhs.size());
-        }
-        rhs.m_allocated.data = nullptr;
-        rhs.m_length = 0;
-        rhs.m_data.capacity = BufferSize;
-    }
-
-    constexpr void _destroy()
-    {
-        if (is_allocated())
-        {
-            allocator_traits::deallocate(m_allocated.allocator(), m_allocated.data,
-                                         m_data.capacity);
-        }
-    }
-
-    template <class Inserter>
-    constexpr void _insert(size_type index, size_type count, Inserter inserter)
-    {
-        if (size() + count > capacity()) // necessarily requires allocation
-        {
-            auto const new_capacity =
-                _compute_spare_capacity(size() + count, m_data.capacity, max_size());
-            auto* new_data = allocator_traits::allocate(m_allocated.allocator(), size() + count);
-            std::memcpy(new_data, m_allocated.data, index);
-            inserter(new_data + index);
-            std::memcpy(new_data + index + count, m_allocated.data + index, size() - index);
-            allocator_traits::deallocate(m_allocated.allocator(), m_allocated.data, capacity());
-        }
-        else
-        {
-            std::memcpy(data() + index + count, data() + index, count);
-            inserter(data() + index);
-            std::memcpy(data() + index + count, data() + index, size() - index);
-        }
-        m_length = size() + count;
-    }
-
-    template <class Appender> constexpr void _append(size_type count, Appender appender)
-    {
-        if (size() + count > capacity())
-        {
-            auto const new_capacity =
-                _compute_spare_capacity(size() + count, capacity(), max_size());
-            auto* new_data = allocator_traits::allocate(m_allocated.allocator(), new_capacity);
-            std::memcpy(new_data, data(), size());
-            if (is_allocated())
-            {
-                allocator_traits::deallocate(m_allocated.allocator(), m_allocated.data, capacity());
-            }
-            m_allocated.data = new_data;
-            m_data.capacity = new_capacity;
-        }
-        appender(data() + size());
-        m_length += count;
-    }
-
-    static constexpr auto _compute_spare_capacity(size_type requested, size_type old, size_type max)
-    {
-        return std::min(std::max(requested, old + old / 2), max);
-    }
-
-    detail::_allocator_hider<allocator_type, pointer> m_allocated;
-    size_type m_length{0};
-    union
-    {
-        std::byte local[BufferSize];
-        size_type capacity;
-    } m_data;
+    detail::_byte_storage<allocator_type, EmbeddedSize> m_storage;
 };
 
 template <class Alloc>
