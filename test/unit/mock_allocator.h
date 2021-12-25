@@ -27,6 +27,12 @@ template <class AlwaysEqual, class Propagate> struct mock_allocator
     allocator_stats* stats;
     unsigned id{0};
 
+    constexpr mock_allocator() noexcept
+        : stats{nullptr}
+        , id{0}
+    {
+    }
+
     constexpr mock_allocator(allocator_stats* stats, unsigned id = 0)
         : stats{stats}
         , id{id}
@@ -38,7 +44,10 @@ template <class AlwaysEqual, class Propagate> struct mock_allocator
         , stats{other.stats}
         , id{other.id}
     {
-        stats->copied += 1;
+        if (stats)
+        {
+            stats->copied += 1;
+        }
     }
 
     constexpr mock_allocator(mock_allocator&& other) noexcept
@@ -46,7 +55,10 @@ template <class AlwaysEqual, class Propagate> struct mock_allocator
         , stats{other.stats}
         , id{other.id}
     {
-        stats->moved += 1;
+        if (stats)
+        {
+            stats->moved += 1;
+        }
     }
 
     constexpr auto operator=(const mock_allocator& other) noexcept -> mock_allocator&
@@ -55,7 +67,10 @@ template <class AlwaysEqual, class Propagate> struct mock_allocator
         {
             stats = other.stats;
             id = other.id;
-            stats->copied += 1;
+            if (stats)
+            {
+                stats->copied += 1;
+            }
         }
         return *this;
     }
@@ -66,27 +81,39 @@ template <class AlwaysEqual, class Propagate> struct mock_allocator
         {
             stats = other.stats;
             id = other.id;
-            stats->moved += 1;
+            if (stats)
+            {
+                stats->moved += 1;
+            }
         }
         return *this;
     }
 
     [[nodiscard]] constexpr std::byte* allocate(std::size_t n)
     {
-        stats->allocated += 1;
+        if (stats)
+        {
+            stats->allocated += 1;
+        }
         return allocator.allocate(n);
     }
 
     constexpr void deallocate(std::byte* p, std::size_t n)
     {
-        stats->deallocated += 1;
+        if (stats)
+        {
+            stats->deallocated += 1;
+        }
         allocator.deallocate(p, n);
     }
 
     [[nodiscard]] constexpr auto select_on_container_copy_construction() const -> mock_allocator
     {
         auto new_alloc = *this;
-        new_alloc.stats->selected += 1;
+        if (new_alloc.stats)
+        {
+            new_alloc.stats->selected += 1;
+        }
         return new_alloc;
     }
 
@@ -104,7 +131,10 @@ template <class AlwaysEqual, class Propagate> struct mock_allocator
 
     void start_tracking()
     {
-        *stats = {0};
+        if (stats)
+        {
+            *stats = {0};
+        }
     }
 };
 

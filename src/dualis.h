@@ -9,6 +9,7 @@
 #include <span>
 #include <vector>
 
+// TODO: configure defines using compiler macros?
 #define _DUALIS_UNALIGNED_MEM_ACCESS
 
 namespace dualis {
@@ -59,418 +60,6 @@ namespace dualis {
 
 using writable_byte_span = std::span<std::byte>;
 using byte_span = std::span<const std::byte>;
-
-template <class Allocator = std::allocator<std::byte>> class _byte_vector final
-{
-public:
-    using storage = std::vector<std::byte, Allocator>;
-    using allocator_type = Allocator;
-    using value_type = std::byte;
-    using reference = std::byte&;
-    using const_reference = const std::byte&;
-    using iterator = typename storage::iterator;
-    using const_iterator = typename storage::const_iterator;
-    using reverse_iterator = typename storage::reverse_iterator;
-    using reverse_const_iterator = typename storage::const_reverse_iterator;
-    using size_type = typename storage::size_type;
-    using difference_type = typename storage::difference_type;
-    using offset_type = size_type;
-    using pointer = typename std::allocator_traits<Allocator>::pointer;
-    using const_pointer = typename std::allocator_traits<Allocator>::const_pointer;
-
-    // Constructors and destructors.
-
-    static auto from_file(const std::filesystem::path& path) -> _byte_vector
-    {
-        auto const size = std::filesystem::file_size(path);
-        std::ifstream input;
-        input.exceptions(std::ifstream::badbit);
-        input.open(path);
-        _byte_vector bytes(size);
-        input.read(reinterpret_cast<char*>(bytes.data()), size);
-        return bytes;
-    }
-
-    constexpr _byte_vector() noexcept(noexcept(Allocator())) = default;
-
-    constexpr explicit _byte_vector(const Allocator& alloc) noexcept
-        : m_data{alloc}
-    {
-    }
-
-    constexpr _byte_vector(size_type count, const value_type& value,
-                           const Allocator& alloc = Allocator())
-        : m_data{count, value, alloc}
-    {
-    }
-
-    constexpr explicit _byte_vector(size_type count, const Allocator& alloc = Allocator())
-        : m_data{count, alloc}
-    {
-    }
-
-    template <class InputIt>
-    constexpr _byte_vector(InputIt first, InputIt last, const Allocator& alloc = Allocator())
-        : m_data{first, last, alloc}
-    {
-    }
-
-    constexpr _byte_vector(const _byte_vector& other)
-        : m_data{other.m_data}
-    {
-    }
-
-    constexpr _byte_vector(const _byte_vector& other, const Allocator& alloc)
-        : m_data{other.m_data, alloc}
-    {
-    }
-
-    constexpr _byte_vector(_byte_vector&& other) noexcept
-        : m_data{std::move(other.m_data)}
-    {
-    }
-
-    constexpr _byte_vector(_byte_vector&& other, const Allocator& alloc)
-        : m_data{std::move(other.m_data), alloc}
-    {
-    }
-
-    constexpr _byte_vector(std::initializer_list<value_type> init,
-                           const Allocator& alloc = Allocator())
-        : m_data{init, alloc}
-    {
-    }
-
-    constexpr ~_byte_vector() = default;
-
-    constexpr auto operator=(const _byte_vector& other) -> _byte_vector& = default;
-
-    constexpr auto operator=(_byte_vector&& other) noexcept -> _byte_vector& = default;
-
-    constexpr auto operator=(std::initializer_list<value_type> ilist) -> _byte_vector&
-    {
-        m_data = ilist;
-    }
-
-    constexpr void assign(size_type count, const value_type& value)
-    {
-        m_data.assign(count, value);
-    }
-
-    template <class InputIt> constexpr void assign(InputIt first, InputIt last)
-    {
-        m_data.assign(first, last);
-    }
-
-    constexpr void assign(std::initializer_list<value_type> ilist)
-    {
-        m_data.assign(ilist);
-    }
-
-    constexpr auto get_allocator() const noexcept -> allocator_type
-    {
-        return m_data.get_allocator();
-    }
-
-    // Iterators.
-
-    constexpr auto begin()
-    {
-        return m_data.begin();
-    }
-
-    constexpr auto begin() const
-    {
-        return m_data.begin();
-    }
-
-    constexpr auto cbegin() const
-    {
-        return m_data.cbegin();
-    }
-
-    constexpr auto rbegin()
-    {
-        return m_data.rbegin();
-    }
-
-    constexpr auto rbegin() const
-    {
-        return m_data.rbegin();
-    }
-
-    constexpr auto crbegin() const
-    {
-        return m_data.crbegin();
-    }
-
-    constexpr auto end()
-    {
-        return m_data.end();
-    }
-
-    constexpr auto end() const
-    {
-        return m_data.end();
-    }
-
-    constexpr auto cend() const
-    {
-        return m_data.cend();
-    }
-
-    constexpr auto rend()
-    {
-        return m_data.end();
-    }
-
-    constexpr auto rend() const
-    {
-        return m_data.rend();
-    }
-
-    constexpr auto crend() const
-    {
-        return m_data.crend();
-    }
-
-    constexpr auto to_offset(const_iterator pos) const -> offset_type
-    {
-        return static_cast<offset_type>(pos - m_data.cbegin());
-    }
-
-    constexpr auto to_iterator(offset_type pos) -> iterator
-    {
-        return m_data.cbegin() + pos;
-    }
-
-    constexpr auto to_iterator(offset_type pos) const -> const_iterator
-    {
-        return m_data.cbegin() + pos;
-    }
-
-    constexpr auto to_const_iterator(offset_type pos) const -> const_iterator
-    {
-        return m_data.cbegin() + pos;
-    }
-
-    // Element access.
-
-    constexpr auto at(size_type pos) -> reference
-    {
-        return m_data.at(pos);
-    }
-
-    constexpr auto at(size_type pos) const -> const_reference
-    {
-        return m_data.at(pos);
-    }
-
-    constexpr auto operator[](size_type pos) -> reference
-    {
-        return m_data[pos];
-    }
-
-    constexpr auto operator[](size_type pos) const -> const_reference
-    {
-        return m_data[pos];
-    }
-
-    constexpr auto front() -> reference
-    {
-        return m_data.front();
-    }
-
-    constexpr auto front() const -> const_reference
-    {
-        return m_data.front();
-    }
-
-    constexpr auto back() -> reference
-    {
-        return m_data.back();
-    }
-
-    constexpr auto back() const -> const_reference
-    {
-        return m_data.back();
-    }
-
-    constexpr auto data() noexcept -> value_type*
-    {
-        return m_data.data();
-    }
-
-    constexpr auto data() const noexcept -> const value_type*
-    {
-        return m_data.data();
-    }
-
-    // Element access specific to _byte_vector.
-
-    auto writable_subspan(size_type first, size_type last) -> writable_byte_span
-    {
-        return writable_byte_span{m_data}.subspan(first, last - first);
-    }
-
-    auto subspan(size_type first, size_type last) const -> byte_span
-    {
-        return byte_span{m_data}.subspan(first, last - first);
-    }
-
-    auto slice(size_type first, size_type last) const -> _byte_vector
-    {
-        return _byte_vector(m_data.data() + first, m_data.data() + last, m_data.get_allocator());
-    }
-
-    // Capacity.
-
-    [[nodiscard]] constexpr bool empty() const noexcept
-    {
-        return m_data.empty();
-    }
-
-    constexpr auto size() const noexcept -> size_type
-    {
-        return m_data.size();
-    }
-
-    constexpr auto max_size() const noexcept -> size_type
-    {
-        return m_data.max_size();
-    }
-
-    constexpr void reserve(size_type new_cap)
-    {
-        m_data.resize(new_cap);
-    }
-
-    constexpr auto capacity() const noexcept -> size_type
-    {
-        return m_data.capacity();
-    }
-
-    constexpr void shrink_to_fit()
-    {
-        m_data.shrink_to_fit();
-    }
-
-    // Modifiers.
-
-    constexpr void clear() noexcept
-    {
-        m_data.clear();
-    }
-
-    constexpr auto insert(const_iterator pos, const value_type& value) -> iterator
-    {
-        return m_data.insert(pos, value);
-    }
-
-    constexpr auto insert(const_iterator pos, value_type&& value) -> iterator
-    {
-        return m_data.insert(pos, std::move(value));
-    }
-
-    constexpr auto insert(const_iterator pos, size_type count, const value_type& value) -> iterator
-    {
-        return m_data.insert(pos, count, value);
-    }
-
-    template <class InputIt>
-    constexpr auto insert(const_iterator pos, InputIt first, InputIt last) -> iterator
-    {
-        return m_data.insert(pos, first, last);
-    }
-
-    constexpr auto insert(const_iterator pos, std::initializer_list<value_type> ilist) -> iterator
-    {
-        return m_data.insert(pos, ilist);
-    }
-
-    constexpr auto emplace(const_iterator pos, value_type value) -> iterator
-    {
-        return m_data.emplace(pos, value);
-    }
-
-    constexpr auto erase(const_iterator pos) -> iterator
-    {
-        return m_data.erase(pos);
-    }
-
-    constexpr auto erase(offset_type pos) -> offset_type
-    {
-        return to_offset(m_data.erase(to_iterator(pos)));
-    }
-
-    constexpr auto erase(const_iterator first, const_iterator last) -> iterator
-    {
-        return m_data.erase(first, last);
-    }
-
-    constexpr auto erase(offset_type first, offset_type last) -> offset_type
-    {
-        return to_offset(m_data.erase(to_iterator(first), to_iterator(last)));
-    }
-
-    constexpr void push_back(const value_type& value)
-    {
-        m_data.push_back(value);
-    }
-
-    constexpr void push_back(value_type&& value)
-    {
-        m_data.push_back(std::move(value));
-    }
-
-    constexpr auto emplace_back(value_type value) -> reference
-    {
-        return m_data.emplace_back(value);
-    }
-
-    constexpr void resize(size_type count)
-    {
-        m_data.resize(count);
-    }
-
-    constexpr void resize(size_type count, const value_type& value)
-    {
-        m_data.resize(count, value);
-    }
-
-    constexpr void swap(_byte_vector& other) noexcept
-    {
-        m_data.swap(other.m_data);
-    }
-
-    // Operators.
-
-    constexpr bool operator==(const _byte_vector& rhs) const
-    {
-        return m_data == rhs.m_data;
-    }
-
-    constexpr auto operator<=>(const _byte_vector& rhs) const
-    {
-        return m_data <=> rhs.m_data;
-    }
-
-    constexpr auto operator+=(const _byte_vector& rhs)
-    {
-        m_data.insert(m_data.end(), rhs.m_data.cbegin(), rhs.m_data.cend());
-    }
-
-private:
-    storage m_data;
-};
-
-template <class Alloc>
-constexpr void swap(_byte_vector<Alloc>& lhs, _byte_vector<Alloc>& rhs) noexcept
-{
-    lhs.swap(rhs);
-}
-
-using byte_vector = _byte_vector<>;
 
 class const_byte_iterator
 {
@@ -666,6 +255,12 @@ public:
     }
 };
 
+// Use compiler-defined intrinsics if available.
+inline auto copy_bytes(std::byte* dest, const std::byte* src, std::size_t size)
+{
+    std::memcpy(dest, src, size);
+}
+
 namespace detail {
 
 // Empty base class optimization: Reduces the storage required if Alloc is an empty class (that is,
@@ -699,7 +294,10 @@ public:
 
     constexpr void swap(_allocator_hider& other) noexcept
     {
-        Alloc::swap(other);
+        if constexpr (std::allocator_traits<Alloc>::propagate_on_container_swap::value)
+        {
+            std::swap(*this, other);
+        }
         std::swap(data, other.data);
     }
 };
@@ -744,7 +342,7 @@ public:
 
     constexpr void swap(_allocator_hider& other) noexcept
     {
-        if constexpr (allocator_traits::propagate_on_container_swap::value)
+        if constexpr (std::allocator_traits<Alloc>::propagate_on_container_swap::value)
         {
             std::swap(m_allocator, other.m_allocator);
         }
@@ -760,12 +358,6 @@ private:
 // Ensure 0-size allocators actually do not result in storage.
 static_assert(sizeof(_allocator_hider<std::allocator<std::byte>, std::byte*>) ==
               sizeof(std::byte*));
-
-// Use compiler-defined intrinsics if available.
-inline auto copy_bytes(std::byte* dest, const std::byte* src, std::size_t size)
-{
-    std::memcpy(dest, src, size);
-}
 
 template <class Allocator, Allocator::size_type LocalSize = 16> class _byte_storage final
 {
@@ -1207,7 +799,7 @@ private:
 
 template <class Allocator = std::allocator<std::byte>,
           typename Allocator::size_type EmbeddedSize = sizeof(typename Allocator::size_type) * 2>
-class _small_byte_vector
+class _byte_vector_base
 {
 public:
     using allocator_type = Allocator;
@@ -1223,52 +815,56 @@ public:
 
     static constexpr auto npos{static_cast<size_type>(-1)};
 
-    constexpr _small_byte_vector() noexcept(noexcept(allocator_type{}))
+    constexpr _byte_vector_base() noexcept(noexcept(allocator_type{}))
         : m_storage{allocator_type{}}
     {
     }
 
-    constexpr explicit _small_byte_vector(const allocator_type& allocator) noexcept
+    constexpr explicit _byte_vector_base(const allocator_type& allocator) noexcept
         : m_storage{allocator}
     {
     }
 
-    constexpr _small_byte_vector(const size_type count, const value_type& value,
-                                 const allocator_type& allocator = allocator_type{})
+    constexpr _byte_vector_base(const size_type count, const value_type& value,
+                                const allocator_type& allocator = allocator_type{})
         : m_storage{count, allocator}
     {
         std::memset(m_storage.data(), std::to_integer<uint8_t>(value), count);
     }
 
-    constexpr _small_byte_vector(size_type count,
-                                 const allocator_type& allocator = allocator_type{})
+    constexpr _byte_vector_base(size_type count, const allocator_type& allocator = allocator_type{})
         : m_storage{count, allocator}
     {
     }
 
-    constexpr _small_byte_vector(const _small_byte_vector& other)
+    constexpr _byte_vector_base(const _byte_vector_base& other)
         : m_storage{other.m_storage}
     {
     }
 
-    constexpr _small_byte_vector(const _small_byte_vector& other, const allocator_type& allocator)
+    constexpr _byte_vector_base(const _byte_vector_base& other, const allocator_type& allocator)
         : m_storage{other.m_storage, allocator}
     {
     }
 
-    constexpr _small_byte_vector(_small_byte_vector&& other)
+    constexpr _byte_vector_base(_byte_vector_base&& other)
         : m_storage{std::move(other.m_storage)}
     {
     }
 
-    constexpr _small_byte_vector(std::initializer_list<std::byte> init,
-                                 const allocator_type& allocator = allocator_type())
+    constexpr _byte_vector_base(_byte_vector_base&& other, const allocator_type& allocator)
+        : m_storage{std::move(other.m_storage), allocator}
+    {
+    }
+
+    constexpr _byte_vector_base(std::initializer_list<std::byte> init,
+                                const allocator_type& allocator = allocator_type())
         : m_storage{init.size(), allocator}
     {
         copy_bytes(data(), init.begin(), init.size());
     }
 
-    constexpr auto operator=(const _small_byte_vector& rhs) -> _small_byte_vector&
+    constexpr auto operator=(const _byte_vector_base& rhs) -> _byte_vector_base&
     {
         if (this != std::addressof(rhs))
         {
@@ -1277,13 +873,13 @@ public:
         return *this;
     }
 
-    constexpr auto assign(const std::byte* bytes, const size_type count) -> _small_byte_vector&
+    constexpr auto assign(const std::byte* bytes, const size_type count) -> _byte_vector_base&
     {
         m_storage.assign(bytes, count);
         return *this;
     }
 
-    constexpr auto operator=(_small_byte_vector&& rhs) -> _small_byte_vector&
+    constexpr auto operator=(_byte_vector_base&& rhs) -> _byte_vector_base&
     {
         if (this != std::addressof(rhs))
         {
@@ -1446,7 +1042,7 @@ public:
         m_storage.clear();
     }
 
-    constexpr auto insert(size_type index, size_type count, std::byte value) -> _small_byte_vector&
+    constexpr auto insert(size_type index, size_type count, std::byte value) -> _byte_vector_base&
     {
         m_storage.insert(index, count, [count, value](std::byte* data) {
             std::memset(data, std::to_integer<int>(value), count);
@@ -1455,7 +1051,7 @@ public:
     }
 
     constexpr auto insert(size_type index, const std::byte* bytes, size_type count)
-        -> _small_byte_vector&
+        -> _byte_vector_base&
     {
         m_storage.insert(index, count,
                          [bytes, count](std::byte* data) { std::memcpy(data, bytes, count); });
@@ -1463,7 +1059,7 @@ public:
     }
 
     template <readable_bytes Bytes>
-    constexpr auto insert(size_type index, const Bytes& bytes) -> _small_byte_vector&
+    constexpr auto insert(size_type index, const Bytes& bytes) -> _byte_vector_base&
     {
         m_storage.insert(index, bytes.size(), [&bytes](std::byte* data) {
             std::memcpy(data, bytes.data(), bytes.size());
@@ -1512,7 +1108,7 @@ public:
         return insert(pos, ilist.begin(), ilist.end());
     }
 
-    constexpr auto erase(size_type index = 0, size_type count = npos) -> _small_byte_vector&
+    constexpr auto erase(size_type index = 0, size_type count = npos) -> _byte_vector_base&
     {
         m_storage.erase(index, count == npos ? size() - index : count);
         return *this;
@@ -1543,7 +1139,7 @@ public:
         m_storage.resize(m_storage.size() - 1);
     }
 
-    constexpr auto append(size_type count, std::byte value) -> _small_byte_vector&
+    constexpr auto append(size_type count, std::byte value) -> _byte_vector_base&
     {
         m_storage.append(count, [value, count](std::byte* dest) {
             std::memset(dest, std::to_integer<int>(value), count);
@@ -1551,42 +1147,42 @@ public:
         return *this;
     }
 
-    constexpr auto append(const std::byte* bytes, size_type count) -> _small_byte_vector&
+    constexpr auto append(const std::byte* bytes, size_type count) -> _byte_vector_base&
     {
         m_storage.append(count,
                          [bytes, count](std::byte* dest) { copy_bytes(dest, bytes, count); });
         return *this;
     }
 
-    constexpr auto append(std::initializer_list<std::byte> ilist) -> _small_byte_vector&
+    constexpr auto append(std::initializer_list<std::byte> ilist) -> _byte_vector_base&
     {
         return append(ilist.begin(), ilist.end() - ilist.begin());
     }
 
-    template <readable_bytes Bytes> constexpr auto append(const Bytes& bytes) -> _small_byte_vector&
+    template <readable_bytes Bytes> constexpr auto append(const Bytes& bytes) -> _byte_vector_base&
     {
         return append(bytes.data(), bytes.size());
     }
 
-    constexpr auto operator+=(std::byte value) -> _small_byte_vector&
+    constexpr auto operator+=(std::byte value) -> _byte_vector_base&
     {
         push_back(value);
         return *this;
     }
 
-    constexpr auto operator+=(std::initializer_list<std::byte> ilist) -> _small_byte_vector&
+    constexpr auto operator+=(std::initializer_list<std::byte> ilist) -> _byte_vector_base&
     {
         return append(ilist);
     }
 
     template <readable_bytes Bytes>
-    constexpr auto operator+=(const Bytes& bytes) -> _small_byte_vector&
+    constexpr auto operator+=(const Bytes& bytes) -> _byte_vector_base&
     {
         return append(bytes);
     }
 
     template <std::contiguous_iterator Iter>
-    constexpr auto append(Iter first, Iter last) -> _small_byte_vector&
+    constexpr auto append(Iter first, Iter last) -> _byte_vector_base&
     {
         const std::byte* bytes = std::to_address(first);
         auto const count = last - first;
@@ -1594,7 +1190,7 @@ public:
     }
 
     template <std::input_iterator Iter>
-    constexpr auto append(Iter first, Iter last) -> _small_byte_vector&
+    constexpr auto append(Iter first, Iter last) -> _byte_vector_base&
     {
         while (first != last)
         {
@@ -1615,7 +1211,7 @@ public:
         });
     }
 
-    constexpr void swap(_small_byte_vector& other) noexcept
+    constexpr void swap(_byte_vector_base& other) noexcept
     {
         if (this != std::addressof(other))
         {
@@ -1623,7 +1219,7 @@ public:
         }
     }
 
-    [[nodiscard]] constexpr bool operator==(const _small_byte_vector& rhs) const noexcept
+    [[nodiscard]] constexpr bool operator==(const _byte_vector_base& rhs) const noexcept
     {
         if (size() != rhs.size())
         {
@@ -1635,12 +1231,12 @@ public:
         }
     }
 
-    [[nodiscard]] constexpr bool operator!=(const _small_byte_vector& rhs) const noexcept
+    [[nodiscard]] constexpr bool operator!=(const _byte_vector_base& rhs) const noexcept
     {
         return !this->operator==(rhs);
     }
 
-    [[nodiscard]] constexpr auto operator<=>(const _small_byte_vector& rhs) const noexcept
+    [[nodiscard]] constexpr auto operator<=>(const _byte_vector_base& rhs) const noexcept
         -> std::strong_ordering
     {
         auto const lexicographic = std::memcmp(data(), rhs.data(), std::min(size(), rhs.size()));
@@ -1659,25 +1255,25 @@ private:
 };
 
 template <class Alloc>
-auto operator+(_small_byte_vector<Alloc> lhs, const _small_byte_vector<Alloc>& rhs)
-    -> _small_byte_vector<Alloc>
+auto operator+(_byte_vector_base<Alloc> lhs, const _byte_vector_base<Alloc>& rhs)
+    -> _byte_vector_base<Alloc>
 {
     return lhs += rhs;
 }
 
 template <class Alloc>
-auto operator+(_small_byte_vector<Alloc> lhs, std::byte rhs) -> _small_byte_vector<Alloc>
+auto operator+(_byte_vector_base<Alloc> lhs, std::byte rhs) -> _byte_vector_base<Alloc>
 {
     return lhs += rhs;
 }
 
 template <class Alloc>
-auto operator+(std::byte lhs, _small_byte_vector<Alloc> rhs) -> _small_byte_vector<Alloc>
+auto operator+(std::byte lhs, _byte_vector_base<Alloc> rhs) -> _byte_vector_base<Alloc>
 {
     return rhs += lhs;
 }
 
-using small_byte_vector = _small_byte_vector<>;
+using small_byte_vector = _byte_vector_base<>;
 
 } // namespace dualis
 

@@ -991,3 +991,104 @@ SCENARIO(CLASS_UNDER_TEST ": inserting and erasing elements", "[containers]")
         }
     }
 }
+
+#undef CLASS_UNDER_TEST
+
+#define CLASS_UNDER_TEST "_byte_vector_base"
+
+SCENARIO(CLASS_UNDER_TEST ": construction and deconstruction", "[containers]")
+{
+    using byte_vector_base = dualis::_byte_vector_base<not_always_equal_allocator>;
+
+    WHEN(CLASS_UNDER_TEST " bytes{}; // default-construction")
+    {
+        byte_vector_base bytes{};
+
+        THEN("bytes is empty")
+        {
+            REQUIRE(bytes.empty());
+        }
+        THEN("bytes has a default-constructed allocator")
+        {
+            REQUIRE(bytes.get_allocator() == byte_vector_base::allocator_type{});
+        }
+    }
+    GIVEN("an allocator")
+    {
+        byte_vector_base::allocator_type allocator;
+        allocator.id = 13;
+
+        WHEN(CLASS_UNDER_TEST " bytes{allocator};")
+        {
+            byte_vector_base bytes{allocator};
+
+            THEN("bytes is empty")
+            {
+                REQUIRE(bytes.empty());
+            }
+            THEN("bytes has the given allocator")
+            {
+                REQUIRE(bytes.get_allocator() == allocator);
+            }
+        }
+
+        AND_GIVEN("a count")
+        {
+            const auto count = 12;
+
+            WHEN(CLASS_UNDER_TEST " bytes{count, allocator};")
+            {
+                byte_vector_base bytes{count, allocator};
+
+                THEN("bytes is count long")
+                {
+                    REQUIRE(bytes.size() == count);
+                }
+                THEN("bytes has the given allocator")
+                {
+                    REQUIRE(bytes.get_allocator() == allocator);
+                }
+            }
+
+            AND_GIVEN("a value")
+            {
+                const std::byte value = 0x33_b;
+                WHEN(CLASS_UNDER_TEST " bytes{count, value, allocator};")
+                {
+                    byte_vector_base bytes{count, value, allocator};
+
+                    THEN("bytes is count long")
+                    {
+                        REQUIRE(bytes.size() == count);
+                    }
+                    THEN("all elements of bytes are value")
+                    {
+                        REQUIRE_THAT(bytes, EachElementIs(value));
+                    }
+                    THEN("bytes has the given allocator")
+                    {
+                        REQUIRE(bytes.get_allocator() == allocator);
+                    }
+                }
+            }
+        }
+        AND_GIVEN("an initializer list ilist")
+        {
+            auto ilist = {0x13_b, 0x14_b, 0x15_b};
+
+            WHEN(CLASS_UNDER_TEST " bytes{count, value, allocator};")
+            {
+                byte_vector_base bytes{ilist, allocator};
+
+                THEN("bytes equals ilist")
+                {
+                    REQUIRE_THAT(bytes, EqualsByteRange(std::vector<std::byte>{ilist}));
+                }
+                THEN("bytes has the given allocator")
+                {
+                    REQUIRE(bytes.get_allocator() == allocator);
+                }
+            }
+        }
+    }
+}
