@@ -2,6 +2,7 @@
 
 #include <catch2/catch_all.hpp>
 #include <dualis.h>
+#include <vector>
 
 struct EachElementIs : Catch::Matchers::MatcherGenericBase
 {
@@ -116,4 +117,75 @@ private:
 template <class T> auto PointsWithin(const T& value) -> PointsWithinMatcher<T>
 {
     return PointsWithinMatcher<T>{value};
+}
+
+template <class ByteRange> struct StartsWithBytesMatcher : Catch::Matchers::MatcherGenericBase
+{
+    StartsWithBytesMatcher(const ByteRange& value)
+        : m_value{value}
+    {
+    }
+
+    template <typename OtherRange> bool match(OtherRange const& other) const
+    {
+        if (m_value.size() > other.size())
+        {
+            return false;
+        }
+        return std::equal(m_value.begin(), m_value.end(), other.begin());
+    }
+
+    auto describe() const -> std::string override
+    {
+        return "\nstarts with\n" + Catch::rangeToString(m_value);
+    }
+
+private:
+    const ByteRange& m_value;
+};
+
+template <class ByteRange>
+auto StartsWithBytes(const ByteRange& bytes) -> StartsWithBytesMatcher<ByteRange>
+{
+    return StartsWithBytesMatcher<ByteRange>{bytes};
+}
+
+template <class Iterator> struct EndsWithBytesMatcher : Catch::Matchers::MatcherGenericBase
+{
+    EndsWithBytesMatcher(Iterator first, Iterator last)
+        : m_first{first}
+        , m_last{last}
+    {
+    }
+
+    template <typename OtherRange> bool match(OtherRange const& other) const
+    {
+        auto const size = m_last - m_first;
+        if (size > other.size())
+        {
+            return false;
+        }
+        return std::equal(m_first, m_last, other.data() + other.size() - size);
+    }
+
+    auto describe() const -> std::string override
+    {
+        return "\nends with\n" + Catch::rangeToString(std::vector<std::byte>(m_first, m_last));
+    }
+
+private:
+    Iterator m_first, m_last;
+};
+
+template <class ByteRange>
+auto EndsWithBytes(const ByteRange& bytes)
+    -> EndsWithBytesMatcher<typename ByteRange::const_iterator>
+{
+    return EndsWithBytesMatcher<typename ByteRange::const_iterator>{bytes.cbegin(), bytes.cend()};
+}
+
+template <class Iterator>
+auto EndsWithBytes(Iterator first, Iterator last) -> EndsWithBytesMatcher<Iterator>
+{
+    return EndsWithBytesMatcher<Iterator>{first, last};
 }

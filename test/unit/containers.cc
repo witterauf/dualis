@@ -998,7 +998,7 @@ SCENARIO(CLASS_UNDER_TEST ": inserting and erasing elements", "[containers]")
 
 #define CLASS_UNDER_TEST "_byte_vector_base"
 
-SCENARIO(CLASS_UNDER_TEST ": construction and deconstruction", "[containers]")
+SCENARIO(CLASS_UNDER_TEST ": construction", "[containers]")
 {
     using byte_vector_base = dualis::_byte_vector_base<not_always_equal_allocator>;
 
@@ -1238,6 +1238,426 @@ SCENARIO(CLASS_UNDER_TEST ": construction and deconstruction", "[containers]")
             THEN("other is empty")
             {
                 REQUIRE(other.empty());
+            }
+        }
+    }
+}
+
+SCENARIO(CLASS_UNDER_TEST ": assignment", "[containers]")
+{
+    using byte_vector_base = dualis::_byte_vector_base<not_always_equal_allocator>;
+
+    GIVEN(CLASS_UNDER_TEST " bytes;")
+    {
+        byte_vector_base bytes;
+
+        AND_GIVEN(CLASS_UNDER_TEST " other; // non-empty")
+        {
+            byte_vector_base other{0x13_b, 0x14_b, 0x15_b};
+            byte_vector_base other_old{0x13_b, 0x14_b, 0x15_b};
+
+            WHEN("bytes = other; // copy-assignment")
+            {
+                bytes = other;
+
+                THEN("bytes and other compare equal")
+                {
+                    REQUIRE(bytes == other);
+                }
+                THEN("the allocators of bytes and other compare equal")
+                {
+                    REQUIRE(bytes.get_allocator() == other.get_allocator());
+                }
+            }
+            WHEN("bytes = std::move(other); // move-assignment")
+            {
+                bytes = std::move(other);
+
+                THEN("bytes compares equal to other before the move")
+                {
+                    REQUIRE(bytes == other_old);
+                }
+                THEN("the allocators of bytes and other before the move compare equal")
+                {
+                    REQUIRE(bytes.get_allocator() == other_old.get_allocator());
+                }
+                THEN("other is empty")
+                {
+                    REQUIRE(other.empty());
+                }
+            }
+        }
+        AND_GIVEN("std::initializer_list<std::byte> ilist;")
+        {
+            std::initializer_list<std::byte> ilist{0x13_b, 0x24_b, 0x36_b};
+            WHEN("bytes = ilist;")
+            {
+                bytes = ilist;
+
+                THEN("bytes has ilist as contents")
+                {
+                    REQUIRE_THAT(bytes, EqualsByteRange(std::vector<std::byte>(ilist)));
+                }
+            }
+        }
+    }
+}
+
+SCENARIO(CLASS_UNDER_TEST ": iterators", "[containers]")
+{
+    using byte_vector_base = dualis::_byte_vector_base<not_always_equal_allocator>;
+
+    GIVEN(CLASS_UNDER_TEST " bytes; // non-empty")
+    {
+        byte_vector_base bytes{0x13_b, 0x24_b, 0x35_b};
+
+        THEN("*bytes.begin() equals the first element of bytes")
+        {
+            REQUIRE(*bytes.begin() == 0x13_b);
+        }
+        THEN("bytes.end() == bytes.begin() + bytes.size()")
+        {
+            REQUIRE(bytes.end() == bytes.begin() + bytes.size());
+        }
+        THEN("*bytes.rbegin() equals the last element of bytes")
+        {
+            REQUIRE(*bytes.rbegin() == 0x35_b);
+        }
+        THEN("bytes.rend() == bytes.rbegin() + bytes.size()")
+        {
+            REQUIRE(bytes.rend() == bytes.rbegin() + bytes.size());
+        }
+    }
+}
+
+SCENARIO(CLASS_UNDER_TEST ": element access", "[containers]")
+{
+    using byte_vector_base = dualis::_byte_vector_base<not_always_equal_allocator>;
+
+    GIVEN(CLASS_UNDER_TEST " bytes; // non-empty")
+    {
+        const std::byte first = 0x13_b;
+        const std::byte last = 0x35_b;
+        const std::byte expected = 0xff_b;
+        byte_vector_base bytes{first, 0x24_b, last};
+
+        WHEN("value = bytes.front();")
+        {
+            auto const value = bytes.front();
+            THEN("value is the first element of bytes")
+            {
+                REQUIRE(value == first);
+            }
+        }
+        WHEN("value = bytes.back();")
+        {
+            auto const value = bytes.back();
+            THEN("value is the last element of bytes")
+            {
+                REQUIRE(value == last);
+            }
+        }
+
+        AND_GIVEN("an offset")
+        {
+            auto const offset = 1;
+
+            WHEN("value = bytes.at(offset);")
+            {
+                auto const value = bytes.at(offset);
+                THEN("value is the element at that offset")
+                {
+                    REQUIRE(value == bytes.data()[offset]);
+                }
+            }
+            WHEN("value = bytes[offset];")
+            {
+                auto const value = bytes[offset];
+                THEN("value is the element at that offset")
+                {
+                    REQUIRE(value == bytes.data()[offset]);
+                }
+            }
+        }
+
+        AND_GIVEN("a byte value")
+        {
+            auto const value = expected;
+
+            WHEN("bytes.front() = value;")
+            {
+                bytes.front() = value;
+                THEN("the first element of bytes becomes value")
+                {
+                    REQUIRE(bytes.data()[0] == value);
+                }
+            }
+            WHEN("bytes.back() = value;")
+            {
+                bytes.back() = value;
+                THEN("the first element of bytes becomes value")
+                {
+                    REQUIRE(bytes.data()[bytes.size() - 1] == value);
+                }
+            }
+        }
+    }
+}
+
+SCENARIO(CLASS_UNDER_TEST ": comparisons", "[containers]")
+{
+    using byte_vector_base = dualis::_byte_vector_base<not_always_equal_allocator>;
+
+    GIVEN(CLASS_UNDER_TEST " a, b;")
+    {
+        WHEN("result = a <=> b;")
+        {
+            AND_WHEN("a < b")
+            {
+                byte_vector_base a{0x13_b, 0x14_b};
+                byte_vector_base b{0x14_b, 0x14_b};
+
+                auto const result = a <=> b;
+
+                THEN("result is 'less'")
+                {
+                    REQUIRE(result == std::strong_ordering::less);
+                }
+            }
+            AND_WHEN("a == b")
+            {
+                byte_vector_base a{0x13_b, 0x14_b};
+                byte_vector_base b{a};
+
+                auto const result = a <=> b;
+
+                THEN("result is 'equal'")
+                {
+                    REQUIRE(result == std::strong_ordering::equal);
+                }
+            }
+            AND_WHEN("a > b")
+            {
+                byte_vector_base a{0x14_b, 0x14_b};
+                byte_vector_base b{0x13_b, 0x14_b};
+
+                auto const result = a <=> b;
+
+                THEN("result is 'greater'")
+                {
+                    REQUIRE(result == std::strong_ordering::greater);
+                }
+            }
+        }
+    }
+}
+
+SCENARIO(CLASS_UNDER_TEST ": conversions", "[containers]")
+{
+    using byte_vector_base = dualis::_byte_vector_base<not_always_equal_allocator>;
+
+    GIVEN(CLASS_UNDER_TEST " bytes;")
+    {
+        byte_vector_base bytes{0x13_b, 0x14_b, 0x15_b};
+
+        WHEN("span = byte_span(bytes); // const")
+        {
+            auto const span = dualis::byte_span(bytes);
+
+            THEN("the span covers the data of bytes")
+            {
+                REQUIRE(span.data() == bytes.data());
+                REQUIRE(span.size() == bytes.size());
+            }
+        }
+        WHEN("span = writable_byte_span(bytes);")
+        {
+            auto const span = dualis::writable_byte_span(bytes);
+
+            THEN("the span covers the data of bytes")
+            {
+                REQUIRE(span.data() == bytes.data());
+                REQUIRE(span.size() == bytes.size());
+            }
+        }
+    }
+}
+
+SCENARIO(CLASS_UNDER_TEST ": appending", "[containers]")
+{
+    using byte_vector_base = dualis::_byte_vector_base<not_always_equal_allocator>;
+
+    GIVEN(CLASS_UNDER_TEST " bytes;")
+    {
+        auto const expected_values = {0x13_b, 0x14_b, 0x15_b};
+        byte_vector_base bytes(expected_values);
+        auto const old_size = bytes.size();
+
+        WHEN("bytes.push_back(value);")
+        {
+            const std::byte value = 0xff_b;
+            bytes.push_back(value);
+            THEN("bytes is 1 element larger")
+            {
+                REQUIRE(bytes.size() == old_size + 1);
+            }
+            THEN("value is the last element of bytes")
+            {
+                REQUIRE(bytes.back() == value);
+            }
+        }
+
+        AND_GIVEN("a count and value")
+        {
+            const std::size_t count = 5;
+            const std::byte value = 0xff_b;
+
+            WHEN("bytes.append(count, value);")
+            {
+                bytes.append(count, value);
+
+                THEN("bytes is count larger")
+                {
+                    REQUIRE(bytes.size() == old_size + count);
+                }
+                THEN("the last count elements are all value")
+                {
+                    auto const span = dualis::byte_span(bytes).subspan(old_size);
+                    REQUIRE_THAT(span, EachElementIs(value));
+                }
+            }
+        }
+
+        AND_GIVEN("a byte pointer and a count")
+        {
+            auto const ilist = {0x80_b, 0x81_b};
+            auto const* byte_pointer = ilist.begin();
+            auto const count = ilist.size();
+
+            WHEN("bytes.append(byte_pointer, count);")
+            {
+                bytes.append(byte_pointer, count);
+
+                THEN("bytes is count larger")
+                {
+                    REQUIRE(bytes.size() == old_size + count);
+                }
+                THEN("the last count elements equal [byte_pointer, byte_pointer+count)")
+                {
+                    auto const span = dualis::byte_span(bytes).subspan(old_size);
+                    REQUIRE_THAT(span, EqualsByteRange(std::vector<std::byte>(ilist)));
+                }
+                THEN("the first elements remain unchanged")
+                {
+                    REQUIRE_THAT(bytes, StartsWithBytes(expected_values));
+                }
+            }
+        }
+    }
+}
+
+SCENARIO(CLASS_UNDER_TEST ": insertion", "[containers]")
+{
+    using byte_vector_base = dualis::_byte_vector_base<not_always_equal_allocator>;
+
+    GIVEN(CLASS_UNDER_TEST " bytes;")
+    {
+        byte_vector_base bytes{0x13_b, 0x14_b, 0x15_b};
+        auto const old_size = bytes.size();
+
+        AND_GIVEN("an offset")
+        {
+            const std::size_t offset = 1;
+
+            AND_GIVEN("a count and a value")
+            {
+                const std::size_t count = 3;
+                const std::byte value = 0xff_b;
+
+                WHEN("bytes.insert(offset, count, value);")
+                {
+                    bytes.insert(offset, count, value);
+
+                    THEN("bytes is count elements larger")
+                    {
+                        REQUIRE(bytes.size() == old_size + count);
+                    }
+                    THEN("the inserted elements are all value")
+                    {
+                        auto const span = dualis::byte_span(bytes).subspan(offset, count);
+                        REQUIRE_THAT(span, EachElementIs(value));
+                    }
+                }
+            }
+        }
+    }
+}
+
+SCENARIO(CLASS_UNDER_TEST ": erasing", "[containers]")
+{
+    using byte_vector_base = dualis::_byte_vector_base<not_always_equal_allocator>;
+
+    GIVEN(CLASS_UNDER_TEST " bytes;")
+    {
+        auto const original_elements = {0x13_b, 0x14_b, 0x15_b};
+        byte_vector_base bytes(original_elements);
+        auto const old_size = bytes.size();
+
+        WHEN("bytes.pop_back();")
+        {
+            bytes.pop_back();
+
+            THEN("bytes is 1 element smaller")
+            {
+                REQUIRE(bytes.size() == old_size - 1);
+            }
+            THEN("bytes is equal to the first elements before erasing")
+            {
+                REQUIRE_THAT(original_elements, StartsWithBytes(bytes));
+            }
+        }
+
+        AND_GIVEN("an offset and a count")
+        {
+            const std::size_t offset = 1;
+            WHEN("bytes.erase(offset, count);")
+            {
+                AND_WHEN("count != npos")
+                {
+                    const std::size_t count = 1;
+                    bytes.erase(offset, count);
+
+                    THEN("bytes is count elements smaller")
+                    {
+                        REQUIRE(bytes.size() == old_size - count);
+                    }
+                    THEN("the first offset elements are unchanged")
+                    {
+                        auto const first_elements = std::vector<std::byte>(
+                            original_elements.begin(), original_elements.begin() + offset);
+                        REQUIRE_THAT(bytes, StartsWithBytes(first_elements));
+                    }
+                    THEN("the last (bytes.size() - offset - count) bytes are copied to offset")
+                    {
+                        REQUIRE_THAT(bytes,
+                                     EndsWithBytes(original_elements.begin() + offset + count,
+                                                   original_elements.end()));
+                    }
+                }
+                AND_WHEN("count == npos")
+                {
+                    auto const count = byte_vector_base::npos;
+                    bytes.erase(offset, count);
+
+                    THEN("the size of bytes is offset")
+                    {
+                        REQUIRE(bytes.size() == offset);
+                    }
+                    THEN("bytes is equal to the first offset elements before erasing")
+                    {
+                        REQUIRE_THAT(original_elements, StartsWithBytes(bytes));
+                    }
+                }
             }
         }
     }

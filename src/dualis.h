@@ -693,7 +693,9 @@ public:
         m_length = new_size;
     }
 
-    template <class Functor> constexpr void resize(size_type count, Functor f)
+    template <class Functor>
+    constexpr void resize(
+        size_type count, Functor f = [](std::byte*, size_type) {})
     {
         if (count > capacity())
         {
@@ -720,9 +722,9 @@ public:
         m_length = count;
     }
 
-    constexpr void erase(size_type index, size_type count)
+    constexpr void erase(size_type offset, size_type count)
     {
-        copy_bytes(data() + index + count, data() + index, count);
+        copy_bytes(data() + offset, data() + offset + count, size() - offset - count);
         m_length -= count;
     }
 
@@ -1029,6 +1031,8 @@ public:
         m_storage.shrink_to_fit();
     }
 
+    //=============================================================================================
+
     [[nodiscard]] constexpr auto operator[](size_type pos) -> std::byte&
     {
         return m_storage.data()[pos];
@@ -1158,7 +1162,7 @@ public:
         -> _byte_vector_base&
     {
         m_storage.insert(offset, count,
-                         [bytes, count](std::byte* data) { std::memcpy(data, bytes, count); });
+                         [bytes, count](std::byte* data) { copy_bytes(data, bytes, count); });
         return *this;
     }
 
@@ -1166,7 +1170,7 @@ public:
     constexpr auto insert(size_type offset, const Bytes& bytes) -> _byte_vector_base&
     {
         m_storage.insert(offset, bytes.size(), [&bytes](std::byte* data) {
-            std::memcpy(data, bytes.data(), bytes.size());
+            copy_bytes(data, bytes.data(), bytes.size());
         });
         return *this;
     }
@@ -1333,7 +1337,7 @@ public:
 
     constexpr void pop_back()
     {
-        m_storage.resize(m_storage.size() - 1);
+        m_storage.resize(m_storage.size() - 1, [](std::byte*, size_type) {});
     }
 
     constexpr void resize(size_type count)
