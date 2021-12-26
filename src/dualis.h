@@ -815,6 +815,8 @@ public:
 
     static constexpr auto npos{static_cast<size_type>(-1)};
 
+    //== constructors =============================================================================
+
     constexpr _byte_vector_base() noexcept(noexcept(allocator_type{}))
         : m_storage{allocator_type{}}
     {
@@ -830,6 +832,13 @@ public:
         : m_storage{count, allocator}
     {
         std::memset(m_storage.data(), std::to_integer<uint8_t>(value), count);
+    }
+
+    constexpr _byte_vector_base(const std::byte* bytes, size_type count,
+                                const allocator_type& allocator = allocator_type{})
+        : m_storage{count, allocator}
+    {
+        copy_bytes(m_storage.data(), bytes, count);
     }
 
     constexpr _byte_vector_base(size_type count, const allocator_type& allocator = allocator_type{})
@@ -858,18 +867,94 @@ public:
     }
 
     constexpr _byte_vector_base(std::initializer_list<std::byte> init,
-                                const allocator_type& allocator = allocator_type())
+                                const allocator_type& allocator = allocator_type{})
         : m_storage{init.size(), allocator}
     {
         copy_bytes(data(), init.begin(), init.size());
     }
 
+    template <std::contiguous_iterator Iterator>
+    constexpr _byte_vector_base(Iterator begin, Iterator end,
+                                const allocator_type& allocator = allocator_type{})
+        : m_storage{end - begin, allocator}
+    {
+        copy_bytes(m_storage.data(), std::to_address(begin), end - begin);
+    }
+
+    template <std::random_access_iterator Iterator>
+    constexpr _byte_vector_base(Iterator begin, Iterator end,
+                                const allocator_type& allocator = allocator_type{})
+        : m_storage{end - begin, allocator}
+    {
+        while (begin != end)
+        {
+            push_back(*begin++);
+        }
+    }
+
+    template <std::input_iterator Iterator>
+    constexpr _byte_vector_base(Iterator begin, Iterator end,
+                                const allocator_type& allocator = allocator_type{})
+        : m_storage{allocator}
+    {
+        while (begin != end)
+        {
+            push_back(*begin++);
+        }
+    }
+
+    template <readable_bytes Bytes>
+    explicit constexpr _byte_vector_base(const Bytes& bytes,
+                                         const allocator_type allocator = allocator_type{})
+        : m_storage{bytes.size(), allocator}
+    {
+        copy_bytes(m_storage.data(), bytes.data(), bytes.size());
+    }
+
+    //== assignment ===============================================================================
+
     constexpr auto operator=(const _byte_vector_base& rhs) -> _byte_vector_base&
     {
-        if (this != std::addressof(rhs))
+        return assign(rhs);
+    }
+
+    constexpr auto operator=(_byte_vector_base&& rhs) -> _byte_vector_base&
+    {
+        return assign(std::move(rhs));
+    }
+
+    constexpr auto operator=(std::initializer_list<std::byte> ilist) -> _byte_vector_base&
+    {
+        return assign(ilist);
+    }
+
+    constexpr auto operator=(std::byte value) -> _byte_vector_base&
+    {
+        return assign(1, value);
+    }
+
+    constexpr auto assign(const _byte_vector_base& other) -> _byte_vector_base&
+    {
+        if (this != std::addressof(other))
         {
-            m_storage.assign(rhs.m_storage);
+            m_storage.assign(other.m_storage);
         }
+        return *this;
+    }
+
+    constexpr auto assign(_byte_vector_base&& other) -> _byte_vector_base&
+    {
+        if (this != std::addressof(other))
+        {
+            m_storage.assign(std::move(other.m_storage));
+        }
+        return *this;
+    }
+
+    constexpr auto assign(size_type count, std::byte value) -> _byte_vector_base&
+    {
+        m_storage.reassign(count);
+        std::memset(m_storage.data(), std::to_integer<int>(value), count);
         return *this;
     }
 
@@ -879,14 +964,31 @@ public:
         return *this;
     }
 
-    constexpr auto operator=(_byte_vector_base&& rhs) -> _byte_vector_base&
+    constexpr auto assign(std::initializer_list<std::byte> ilist) -> _byte_vector_base&
     {
-        if (this != std::addressof(rhs))
+        m_storage.assign(ilist.begin(), ilist.size());
+        return *this;
+    }
+
+    template <std::contiguous_iterator Iterator>
+    constexpr auto assign(Iterator begin, Iterator end) -> _byte_vector_base&
+    {
+        m_storage.assign(std::to_address(begin), end - begin);
+        return *this;
+    }
+
+    template <std::input_iterator Iterator>
+    constexpr auto assign(Iterator begin, Iterator end) -> _byte_vector_base&
+    {
+        clear();
+        while (begin != end)
         {
-            m_storage.assign(std::move(rhs.m_storage));
+            push_back(*begin++);
         }
         return *this;
     }
+
+    //=============================================================================================
 
     constexpr auto get_allocator() const noexcept -> allocator_type
     {
@@ -1042,26 +1144,28 @@ public:
         m_storage.clear();
     }
 
-    constexpr auto insert(size_type index, size_type count, std::byte value) -> _byte_vector_base&
+    //== insert() =================================================================================
+
+    constexpr auto insert(size_type offset, size_type count, std::byte value) -> _byte_vector_base&
     {
-        m_storage.insert(index, count, [count, value](std::byte* data) {
+        m_storage.insert(offset, count, [count, value](std::byte* data) {
             std::memset(data, std::to_integer<int>(value), count);
         });
         return *this;
     }
 
-    constexpr auto insert(size_type index, const std::byte* bytes, size_type count)
+    constexpr auto insert(size_type offset, const std::byte* bytes, size_type count)
         -> _byte_vector_base&
     {
-        m_storage.insert(index, count,
+        m_storage.insert(offset, count,
                          [bytes, count](std::byte* data) { std::memcpy(data, bytes, count); });
         return *this;
     }
 
     template <readable_bytes Bytes>
-    constexpr auto insert(size_type index, const Bytes& bytes) -> _byte_vector_base&
+    constexpr auto insert(size_type offset, const Bytes& bytes) -> _byte_vector_base&
     {
-        m_storage.insert(index, bytes.size(), [&bytes](std::byte* data) {
+        m_storage.insert(offset, bytes.size(), [&bytes](std::byte* data) {
             std::memcpy(data, bytes.data(), bytes.size());
         });
         return *this;
@@ -1081,36 +1185,65 @@ public:
         return begin() + index;
     }
 
-    template <std::contiguous_iterator InputIt>
-    constexpr auto insert(const_iterator pos, InputIt first, InputIt last) -> iterator
+    template <std::contiguous_iterator Iterator>
+    constexpr auto insert(size_type offset, Iterator first, Iterator last) -> iterator
     {
         const std::byte* bytes = std::to_address(first);
         auto const count = last - first;
+        insert(offset, bytes, count);
+        return *this;
+    }
+
+    template <std::random_access_iterator Iterator>
+    constexpr auto insert(size_type offset, Iterator first, Iterator last) -> iterator
+    {
+        auto const count = last - first;
+        m_storage.insert(offset, count, [first, last](std::byte* data) {
+            while (first != last)
+            {
+                *data++ = *first++;
+            }
+        });
+        return *this;
+    }
+
+    template <std::input_iterator Iterator>
+    constexpr auto insert(size_type offset, Iterator first, Iterator last) -> iterator
+    {
+        while (first != last)
+        {
+            insert(offset++, *first);
+        }
+        return *this;
+    }
+
+    template <std::input_iterator Iterator>
+    constexpr auto insert(const_iterator pos, Iterator first, Iterator last) -> iterator
+    {
         auto const index = pos - cbegin();
-        insert(index, bytes, count);
+        insert(index, first, last);
         return begin() + index;
     }
 
-    template <std::input_iterator InputIt>
-    constexpr auto insert(const_iterator pos, InputIt first, InputIt last) -> iterator
+    constexpr auto insert(size_type offset, std::initializer_list<std::byte> ilist)
+        -> _byte_vector_base&
     {
-        auto const index = pos - cbegin();
-        while (first != last)
-        {
-            insert(pos++, *first);
-        }
-        return begin() + index;
+        m_storage.reserve(size() + ilist.size());
+        return insert(offset, ilist.begin(), ilist.end());
     }
 
     constexpr auto insert(const_iterator pos, std::initializer_list<std::byte> ilist) -> iterator
     {
-        m_storage.reserve(size() + ilist.size());
-        return insert(pos, ilist.begin(), ilist.end());
+        auto const index = pos - cbegin();
+        insert(index, ilist);
+        return begin() + index;
     }
 
-    constexpr auto erase(size_type index = 0, size_type count = npos) -> _byte_vector_base&
+    //== erase() ==================================================================================
+
+    constexpr auto erase(size_type offset = 0, size_type count = npos) -> _byte_vector_base&
     {
-        m_storage.erase(index, count == npos ? size() - index : count);
+        m_storage.erase(offset, count == npos ? size() - offset : count);
         return *this;
     }
 
@@ -1129,15 +1262,7 @@ public:
         return begin() + index;
     }
 
-    constexpr void push_back(std::byte value)
-    {
-        m_storage.append(1, [value](std::byte* dest) { *dest = value; });
-    }
-
-    constexpr void pop_back()
-    {
-        m_storage.resize(m_storage.size() - 1);
-    }
+    //== append() / operator+= ====================================================================
 
     constexpr auto append(size_type count, std::byte value) -> _byte_vector_base&
     {
@@ -1157,6 +1282,24 @@ public:
     constexpr auto append(std::initializer_list<std::byte> ilist) -> _byte_vector_base&
     {
         return append(ilist.begin(), ilist.end() - ilist.begin());
+    }
+
+    template <std::contiguous_iterator Iterator>
+    constexpr auto append(Iterator first, Iterator last) -> _byte_vector_base&
+    {
+        const std::byte* bytes = std::to_address(first);
+        auto const count = last - first;
+        return append(bytes, count);
+    }
+
+    template <std::input_iterator Iterator>
+    constexpr auto append(Iterator first, Iterator last) -> _byte_vector_base&
+    {
+        while (first != last)
+        {
+            push_back(*first++);
+        }
+        return *this;
     }
 
     template <readable_bytes Bytes> constexpr auto append(const Bytes& bytes) -> _byte_vector_base&
@@ -1181,22 +1324,16 @@ public:
         return append(bytes);
     }
 
-    template <std::contiguous_iterator Iter>
-    constexpr auto append(Iter first, Iter last) -> _byte_vector_base&
+    //=============================================================================================
+
+    constexpr void push_back(std::byte value)
     {
-        const std::byte* bytes = std::to_address(first);
-        auto const count = last - first;
-        return append(bytes, count);
+        m_storage.append(1, [value](std::byte* dest) { *dest = value; });
     }
 
-    template <std::input_iterator Iter>
-    constexpr auto append(Iter first, Iter last) -> _byte_vector_base&
+    constexpr void pop_back()
     {
-        while (first != last)
-        {
-            push_back(*first++);
-        }
-        return *this;
+        m_storage.resize(m_storage.size() - 1);
     }
 
     constexpr void resize(size_type count)
@@ -1250,6 +1387,16 @@ public:
         }
     }
 
+    operator byte_span() const noexcept
+    {
+        return byte_span{m_storage.data(), m_storage.size()};
+    }
+
+    operator writable_byte_span() noexcept
+    {
+        return writable_byte_span{m_storage.data(), m_storage.size()};
+    }
+
 private:
     detail::_byte_storage<allocator_type, EmbeddedSize> m_storage;
 };
@@ -1271,6 +1418,13 @@ template <class Alloc>
 auto operator+(std::byte lhs, _byte_vector_base<Alloc> rhs) -> _byte_vector_base<Alloc>
 {
     return rhs += lhs;
+}
+
+template <class Allocator, typename Allocator::size_type EmbeddedSize>
+void swap(_byte_vector_base<Allocator, EmbeddedSize>& a,
+          _byte_vector_base<Allocator, EmbeddedSize>& b)
+{
+    a.swap(b);
 }
 
 using small_byte_vector = _byte_vector_base<>;

@@ -1,7 +1,7 @@
 #pragma once
 
-#include <dualis.h>
 #include <catch2/catch_all.hpp>
+#include <dualis.h>
 
 struct EachElementIs : Catch::Matchers::MatcherGenericBase
 {

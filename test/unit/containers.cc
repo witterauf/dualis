@@ -1,6 +1,8 @@
 #include "matchers.h"
 #include "mock_allocator.h"
 #include <dualis.h>
+#include <list>
+#include <vector>
 
 using namespace dualis;
 using namespace dualis::literals;
@@ -1076,13 +1078,107 @@ SCENARIO(CLASS_UNDER_TEST ": construction and deconstruction", "[containers]")
         {
             auto ilist = {0x13_b, 0x14_b, 0x15_b};
 
-            WHEN(CLASS_UNDER_TEST " bytes{count, value, allocator};")
+            WHEN(CLASS_UNDER_TEST " bytes{ilist, allocator};")
             {
                 byte_vector_base bytes{ilist, allocator};
 
                 THEN("bytes equals ilist")
                 {
                     REQUIRE_THAT(bytes, EqualsByteRange(std::vector<std::byte>{ilist}));
+                }
+                THEN("bytes has the given allocator")
+                {
+                    REQUIRE(bytes.get_allocator() == allocator);
+                }
+            }
+        }
+        AND_GIVEN("a byte_pointer and a count")
+        {
+            auto ilist = {0x13_b, 0x14_b, 0x15_b};
+
+            WHEN(CLASS_UNDER_TEST " bytes{byte_pointer, count, allocator};")
+            {
+                byte_vector_base bytes{ilist.begin(), ilist.size(), allocator};
+
+                THEN("bytes equals [byte_pointer, byte_pointer+count)")
+                {
+                    REQUIRE_THAT(bytes, EqualsByteRange(std::vector<std::byte>{ilist}));
+                }
+                THEN("bytes has the given allocator")
+                {
+                    REQUIRE(bytes.get_allocator() == allocator);
+                }
+            }
+        }
+        AND_GIVEN("first and last iterators")
+        {
+            WHEN(CLASS_UNDER_TEST " bytes{first, last, allocator};")
+            {
+                AND_WHEN("the iterators are contiguous")
+                {
+                    std::vector<std::byte> contiguous{0x13_b, 0x14_b, 0x15_b};
+                    static_assert(std::contiguous_iterator<decltype(contiguous)::const_iterator>);
+
+                    byte_vector_base bytes{contiguous.cbegin(), contiguous.cend(), allocator};
+
+                    THEN("bytes equals [byte_pointer, byte_pointer+count)")
+                    {
+                        REQUIRE_THAT(bytes, EqualsByteRange(contiguous));
+                    }
+                    THEN("bytes has the given allocator")
+                    {
+                        REQUIRE(bytes.get_allocator() == allocator);
+                    }
+                }
+                AND_WHEN("the iterators are at most input iterators")
+                {
+                    std::list<std::byte> input{0x13_b, 0x14_b, 0x15_b};
+                    static_assert(!std::random_access_iterator<decltype(input)::const_iterator>);
+                    static_assert(std::input_iterator<decltype(input)::const_iterator>);
+
+                    byte_vector_base bytes{input.cbegin(), input.cend(), allocator};
+
+                    THEN("bytes equals [byte_pointer, byte_pointer+count)")
+                    {
+                        REQUIRE_THAT(bytes, EqualsByteRange(std::vector<std::byte>(input.cbegin(),
+                                                                                   input.cend())));
+                    }
+                    THEN("bytes has the given allocator")
+                    {
+                        REQUIRE(bytes.get_allocator() == allocator);
+                    }
+                }
+            }
+        }
+        AND_GIVEN("a " CLASS_UNDER_TEST " other;")
+        {
+            byte_vector_base other{0x13_b, 0x14_b, 0x15_b};
+
+            WHEN(CLASS_UNDER_TEST " bytes{other, allocator};")
+            {
+                byte_vector_base bytes{other, allocator};
+
+                THEN("bytes equals other")
+                {
+                    REQUIRE_THAT(bytes, EqualsByteRange(other));
+                }
+                THEN("bytes has the given allocator")
+                {
+                    REQUIRE(bytes.get_allocator() == allocator);
+                }
+            }
+        }
+        AND_GIVEN("another readable_bytes container")
+        {
+            std::vector<std::byte> container{0x13_b, 0x14_b, 0x15_b};
+
+            WHEN(CLASS_UNDER_TEST " bytes{container, allocator};")
+            {
+                byte_vector_base bytes{container, allocator};
+
+                THEN("bytes equals container")
+                {
+                    REQUIRE_THAT(bytes, EqualsByteRange(container));
                 }
                 THEN("bytes has the given allocator")
                 {
