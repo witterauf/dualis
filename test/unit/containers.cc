@@ -1153,6 +1153,7 @@ SCENARIO(CLASS_UNDER_TEST ": construction and deconstruction", "[containers]")
         AND_GIVEN("a " CLASS_UNDER_TEST " other;")
         {
             byte_vector_base other{0x13_b, 0x14_b, 0x15_b};
+            byte_vector_base other_old{0x13_b, 0x14_b, 0x15_b};
 
             WHEN(CLASS_UNDER_TEST " bytes{other, allocator};")
             {
@@ -1165,6 +1166,23 @@ SCENARIO(CLASS_UNDER_TEST ": construction and deconstruction", "[containers]")
                 THEN("bytes has the given allocator")
                 {
                     REQUIRE(bytes.get_allocator() == allocator);
+                }
+            }
+            WHEN(CLASS_UNDER_TEST " bytes{std::move(other), allocator}")
+            {
+                byte_vector_base bytes{std::move(other), allocator};
+
+                THEN("bytes equals other before the move")
+                {
+                    REQUIRE_THAT(bytes, EqualsByteRange(other_old));
+                }
+                THEN("bytes has the given allocator")
+                {
+                    REQUIRE(bytes.get_allocator() == allocator);
+                }
+                THEN("other is empty")
+                {
+                    REQUIRE(other.empty());
                 }
             }
         }
@@ -1184,6 +1202,42 @@ SCENARIO(CLASS_UNDER_TEST ": construction and deconstruction", "[containers]")
                 {
                     REQUIRE(bytes.get_allocator() == allocator);
                 }
+            }
+        }
+    }
+    AND_GIVEN("a " CLASS_UNDER_TEST " other;")
+    {
+        byte_vector_base other{0x13_b, 0x14_b, 0x15_b};
+        byte_vector_base other_old{0x13_b, 0x14_b, 0x15_b};
+
+        WHEN(CLASS_UNDER_TEST " bytes{other, allocator};")
+        {
+            byte_vector_base bytes{other};
+
+            THEN("bytes equals other")
+            {
+                REQUIRE_THAT(bytes, EqualsByteRange(other));
+            }
+            THEN("bytes has an allocator comparing equal to other's")
+            {
+                REQUIRE(bytes.get_allocator() == other.get_allocator());
+            }
+        }
+        WHEN(CLASS_UNDER_TEST " bytes{std::move(other), allocator}")
+        {
+            byte_vector_base bytes{std::move(other)};
+
+            THEN("bytes equals other before the move")
+            {
+                REQUIRE_THAT(bytes, EqualsByteRange(other_old));
+            }
+            THEN("bytes has an allocator comparing equal to other's before the move")
+            {
+                REQUIRE(bytes.get_allocator() == other_old.get_allocator());
+            }
+            THEN("other is empty")
+            {
+                REQUIRE(other.empty());
             }
         }
     }

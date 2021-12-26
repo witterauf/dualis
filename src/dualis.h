@@ -856,7 +856,7 @@ public:
     {
     }
 
-    constexpr _byte_vector_base(_byte_vector_base&& other)
+    constexpr _byte_vector_base(_byte_vector_base&& other) noexcept
         : m_storage{std::move(other.m_storage)}
     {
     }
