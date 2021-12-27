@@ -5,8 +5,6 @@
 using namespace dualis;
 using namespace dualis::literals;
 
-using uint16_le = little_endian<uint16_t>;
-
 SCENARIO("Unpacking bytes", "[unpacking]")
 {
     GIVEN("a sequence of bytes")

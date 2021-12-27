@@ -1439,7 +1439,8 @@ void swap(_byte_vector_base<Allocator, EmbeddedSize>& a,
     a.swap(b);
 }
 
-using small_byte_vector = _byte_vector_base<>;
+using byte_string = _byte_vector_base<>;
+using byte_vector = _byte_vector_base<std::allocator<std::byte>, 0>;
 
 } // namespace dualis
 
@@ -1544,6 +1545,43 @@ template <std::integral T> using big_endian = detail::_big_endian_ptrcast<T>;
 #error "Only architectures that allow unaligned memory access supported so far"
 #endif
 
+// default aliases
+
+using uint16_le = little_endian<uint16_t>;
+using uint32_le = little_endian<uint32_t>;
+using uint64_le = little_endian<uint64_t>;
+using int16_le = little_endian<int16_t>;
+using int32_le = little_endian<int32_t>;
+using int64_le = little_endian<int64_t>;
+using uint16_be = big_endian<uint16_t>;
+using uint32_be = big_endian<uint32_t>;
+using uint64_be = big_endian<uint64_t>;
+using int16_be = big_endian<int16_t>;
+using int32_be = big_endian<int32_t>;
+using int64_be = big_endian<int64_t>;
+
+template <std::default_initializable T> struct raw
+{
+    using value_type = T;
+
+    static auto unpack(const std::byte* bytes) -> T
+    {
+        T result{};
+        copy_bytes(reinterpret_cast<std::byte*>(&result), bytes, size());
+        return result;
+    }
+
+    static void pack(const T& value, std::byte* bytes)
+    {
+        copy_bytes(bytes, reinterpret_cast<const std::byte*>(&value), size());
+    }
+
+    static constexpr auto size()
+    {
+        return sizeof(value_type);
+    }
+};
+
 template <byte_packing Packing, readable_bytes Bytes>
 auto unpack(const Bytes& bytes, std::size_t offset) -> typename Packing::value_type
 {
@@ -1582,36 +1620,25 @@ auto unpack_multiple(const Bytes& bytes, std::size_t offset)
     return detail::_unpack_from(bytes, offset, Packings{}...);
 }
 
+/*
 template <byte_packing... Packings, writable_bytes Bytes>
 void pack_into(Bytes& bytes, std::size_t offset, typename Packings::value_type... values)
 {
     detail::_pack_into<Packings...>(bytes, offset, values...);
 }
+*/
 
-/*
-// Read sizeof(T) bytes from bytes and return them as an instance of T.
-template <std::default_initializable T, readable_bytes Bytes>
-auto read_raw(const Bytes& bytes, std::size_t offset = 0) -> T
-{
-    constexpr auto size = sizeof(T);
-    T result{};
-    std::memcpy(&result, bytes.data() + offset, size);
-    return result;
-}
-
-template <class T, class WordOrder, readable_bytes Bytes, class OutputIt>
-requires word_order<WordOrder, T>
-auto read_integer_sequence(OutputIt first, std::size_t count, const Bytes& bytes,
-                           std::size_t offset = 0) -> OutputIt
+template <byte_packing Packing, readable_bytes Bytes, class OutputIt>
+auto unpack_n(OutputIt first, std::size_t count, const Bytes& bytes, std::size_t offset = 0)
+    -> OutputIt
 {
     for (decltype(count) i = 0; i < count; ++i)
     {
-        *first++ = read_integer<T, WordOrder>(bytes, offset);
-        offset += sizeof(T);
+        *first++ = unpack<Packing>(bytes, offset);
+        offset += Packing::size();
     }
     return first;
 }
-*/
 
 } // namespace dualis
 
@@ -1621,7 +1648,6 @@ auto read_integer_sequence(OutputIt first, std::size_t count, const Bytes& bytes
 
 namespace dualis {
 
-/*
 class byte_reader
 {
 public:
@@ -1647,21 +1673,18 @@ public:
         return m_data;
     }
 
-    template <std::integral T, class WordOrder>
-    requires word_order<WordOrder, T>
-    auto consume_integer() -> T
+    template <byte_packing Packing> auto unpack() -> typename Packing::value_type
     {
-        auto const value = ::dualis::read_integer<T, WordOrder>(m_data, m_offset);
-        m_offset += sizeof(T);
+        auto const value = ::dualis::unpack<Packing>(m_data, m_offset);
+        m_offset += Packing::size();
         return value;
     }
 
-    template <class T, class WordOrder, class OutputIt>
-    requires word_order<WordOrder, T>
-    auto consume_integer_sequence(OutputIt first, std::size_t count) -> OutputIt
+    template <byte_packing Packing, class OutputIt>
+    auto unpack_n(OutputIt first, std::size_t n) -> OutputIt
     {
-        auto const after = read_integer_sequence<T, WordOrder>(first, count, m_data, m_offset);
-        m_offset += sizeof(T) * count;
+        auto const after = ::dualis::unpack_n<Packing>(first, n, m_data, m_offset);
+        m_offset += Packing::size() * n;
         return after;
     }
 
@@ -1669,7 +1692,7 @@ private:
     byte_span m_data;
     std::size_t m_offset{0};
 };
-*/
+
 } // namespace dualis
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////

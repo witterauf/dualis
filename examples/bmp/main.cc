@@ -47,7 +47,7 @@ static_assert(sizeof(BitmapInfoHeader) == 40);
 void checkAgainstRawRead(byte_span bmp, const BitmapInfoHeader& infoHeader)
 {
     // Only works on little-endian machines! Avoid if possible.
-    auto const infoHeaderB = read_raw<BitmapInfoHeader>(bmp, 14);
+    auto const infoHeaderB = unpack<raw<BitmapInfoHeader>>(bmp, 14);
     if (std::memcmp(&infoHeader, &infoHeaderB, sizeof(BitmapInfoHeader)) != 0)
     {
         std::cerr << "Warning: read mismatch\n";
@@ -57,26 +57,25 @@ void checkAgainstRawRead(byte_span bmp, const BitmapInfoHeader& infoHeader)
 auto readHeader(dualis::byte_span bmp) -> std::pair<size_t, size_t>
 {
     using namespace dualis;
-    auto const size = read_integer<uint16_t, little_endian>(bmp, 2);
-    auto const offset = read_integer<uint32_t, little_endian>(bmp, 10);
+    auto const size = unpack<uint16_le>(bmp, 2);
+    auto const offset = unpack<uint32_le>(bmp, 10);
     return std::make_pair(size, offset);
 }
 
 auto readInfoHeader(byte_reader& reader) -> BitmapInfoHeader
 {
     BitmapInfoHeader infoHeader;
-    infoHeader.biSize = reader.consume_integer<uint32_t, little_endian>();
-    infoHeader.biWidth = reader.consume_integer<int32_t, little_endian>();
-    infoHeader.biHeight = reader.consume_integer<int32_t, little_endian>();
-    infoHeader.biPlanes = reader.consume_integer<uint16_t, little_endian>();
-    infoHeader.biBitCount = reader.consume_integer<uint16_t, little_endian>();
-    infoHeader.biCompression =
-        static_cast<BitmapCompression>(reader.consume_integer<uint32_t, little_endian>());
-    infoHeader.biImageSize = reader.consume_integer<uint32_t, little_endian>();
-    infoHeader.biXPelsPerMeter = reader.consume_integer<int32_t, little_endian>();
-    infoHeader.biYPelsPerMeter = reader.consume_integer<int32_t, little_endian>();
-    infoHeader.biClrUsed = reader.consume_integer<uint32_t, little_endian>();
-    infoHeader.biClrImportant = reader.consume_integer<uint32_t, little_endian>();
+    infoHeader.biSize = reader.unpack<uint32_le>();
+    infoHeader.biWidth = reader.unpack<int32_le>();
+    infoHeader.biHeight = reader.unpack<int32_le>();
+    infoHeader.biPlanes = reader.unpack<uint16_le>();
+    infoHeader.biBitCount = reader.unpack<uint16_le>();
+    infoHeader.biCompression = static_cast<BitmapCompression>(reader.unpack<uint32_le>());
+    infoHeader.biImageSize = reader.unpack<uint32_le>();
+    infoHeader.biXPelsPerMeter = reader.unpack<int32_le>();
+    infoHeader.biYPelsPerMeter = reader.unpack<int32_le>();
+    infoHeader.biClrUsed = reader.unpack<uint32_le>();
+    infoHeader.biClrImportant = reader.unpack<uint32_le>();
     checkAgainstRawRead(reader.span(), infoHeader);
     return infoHeader;
 }
@@ -87,8 +86,7 @@ auto readPalette(byte_reader& reader, const BitmapInfoHeader& infoHeader) -> std
     if (infoHeader.paletteSize() > 0)
     {
         palette.resize(infoHeader.paletteSize());
-        reader.consume_integer_sequence<uint32_t, little_endian>(palette.begin(),
-                                                                 infoHeader.paletteSize());
+        reader.unpack_n<uint32_le>(palette.begin(), infoHeader.paletteSize());
     }
     return palette;
 }
@@ -143,7 +141,7 @@ void printPalette(const std::vector<uint32_t>& palette)
 void printBitmapInfo(const std::filesystem::path& path)
 {
     // byte_vector owns the memory.
-    auto const bmp = dualis::byte_vector::from_file(path);
+    auto const bmp = dualis::load_bytes<dualis::byte_vector>(path);
     // byte_span does not own the memory---it's merely a convenient view.
     auto const bmpSpan = dualis::byte_span{bmp};
 
