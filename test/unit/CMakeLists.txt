@@ -14,3 +14,18 @@ target_compile_options(dualis-test-containers
     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -pedantic -Werror>
 )
 add_test(NAME dualis-test-containers COMMAND dualis-test-containers)
+
+add_executable(dualis-test-packing
+  packing.cc
+)
+target_link_libraries(dualis-test-packing
+  PRIVATE
+    dualis::dualis
+    Catch2::Catch2WithMain
+)
+target_compile_options(dualis-test-packing
+  INTERFACE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -pedantic -Werror>
+)
+add_test(NAME dualis-test-packing COMMAND dualis-test-packing)

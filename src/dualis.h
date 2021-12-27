@@ -41,12 +41,20 @@ concept insertable_bytes = requires(const T& t)
     t.insert(t.begin());
 };
 
-template<class T, class U>
-concept word_order = requires(const std::byte* bytes, std::byte* writableBytes,
-                              U value)
+template <class T>
+concept size_constructible_bytes = requires(std::size_t size, T& t) {
+    T{size};
+    { t.data() } -> std::same_as<std::byte*>;
+};
+
+template<class T>
+concept byte_packing = requires(const std::byte* bytes, std::byte* writableBytes,
+                                typename T::value_type value)
 {
-    { T::template read<U>(bytes) } -> std::same_as<U>;
-    T::template write<U>(value, writableBytes);
+    typename T::value_type;
+    { T::unpack(bytes) } -> std::same_as<typename T::value_type>;
+    { T::size() } -> std::same_as<std::size_t>;
+    T::pack(value, writableBytes);
 };
 // clang-format on
 
@@ -1441,12 +1449,21 @@ using small_byte_vector = _byte_vector_base<>;
 
 namespace dualis {
 
-template <class Bytes>
-requires readable_bytes<Bytes>
+template <readable_bytes Bytes>
 void save_bytes(const Bytes& bytes, const std::filesystem::path& path)
 {
     std::ofstream output{path};
     output.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+}
+
+template <size_constructible_bytes Bytes>
+auto load_bytes(const std::filesystem::path& path) -> Bytes
+{
+    auto const size = std::filesystem::file_size(path);
+    std::ifstream input{path};
+    Bytes bytes(size);
+    input.read(reinterpret_cast<char*>(bytes.data()), size);
+    return bytes;
 }
 
 } // namespace dualis
@@ -1460,59 +1477,118 @@ namespace dualis {
 /// Swaps the byte order of the given integer.
 template <std::unsigned_integral T> auto byte_swap(T value) -> T;
 
+template <std::size_t Width> class unsigned_int;
+
+template <> struct unsigned_int<2>
+{
+    using type = uint16_t;
+};
+
+template <> struct unsigned_int<4>
+{
+    using type = uint32_t;
+};
+
 namespace detail {
 
-class _little_endian_ptrcast final
+template <std::integral T> class _little_endian_ptrcast final
 {
 public:
-    template <std::integral T> static auto read(const std::byte* bytes) -> T
+    using value_type = T;
+
+    static auto unpack(const std::byte* bytes) -> T
     {
         return *reinterpret_cast<const T*>(bytes);
     }
 
-    template <std::integral T> static void write(T value, std::byte* bytes)
+    static void pack(T value, std::byte* bytes)
     {
         *reinterpret_cast<T*>(bytes) = value;
     }
+
+    static constexpr auto size()
+    {
+        return sizeof(value_type);
+    }
 };
 
-class _big_endian_ptrcast final
+template <std::integral T> class _big_endian_ptrcast final
 {
 public:
-    template <std::integral T> static auto read(const std::byte* bytes) -> T
+    using value_type = T;
+
+    static auto unpack(const std::byte* bytes) -> T
     {
         return ::dualis::byte_swap(
             static_cast<typename std::make_unsigned<T>::type>(*reinterpret_cast<const T*>(bytes)));
     }
 
-    template <std::integral T> static void write(T value, std::byte* bytes)
+    static void pack(T value, std::byte* bytes)
     {
         *reinterpret_cast<T*>(bytes) =
             ::dualis::byte_swap(static_cast<typename std::make_unsigned<T>::type>(value));
     }
-};
 
-static_assert(word_order<_little_endian_ptrcast, uint32_t>);
-static_assert(word_order<_big_endian_ptrcast, uint32_t>);
+    static constexpr auto size()
+    {
+        return sizeof(value_type);
+    }
+};
 
 } // namespace detail
 
 #ifdef _DUALIS_UNALIGNED_MEM_ACCESS
-using little_endian = detail::_little_endian_ptrcast;
-using big_endian = detail::_big_endian_ptrcast;
+template <std::integral T> using little_endian = detail::_little_endian_ptrcast<T>;
+template <std::integral T> using big_endian = detail::_big_endian_ptrcast<T>;
 #else
 #error "Only architectures that allow unaligned memory access supported so far"
 #endif
 
-// Read sizeof(T) bytes from bytes and interpret it as an integer of type T using the given
-// WordOrder.
-template <std::integral T, class WordOrder, readable_bytes Bytes>
-requires word_order<WordOrder, T>
-auto read_integer(const Bytes& bytes, std::size_t offset = 0) -> T
+template <byte_packing Packing, readable_bytes Bytes>
+auto unpack(const Bytes& bytes, std::size_t offset) -> typename Packing::value_type
 {
-    return WordOrder::template read<T>(bytes.data() + offset);
+    return Packing::unpack(bytes.data() + offset);
 }
 
+template <byte_packing Packing, class U, writable_bytes Bytes>
+void pack_into(Bytes& bytes, std::size_t offset, const U& value)
+{
+    Packing::pack(typename Packing::value_type(value), bytes.data() + offset);
+}
+
+namespace detail {
+
+template <byte_packing Packing, readable_bytes Bytes>
+auto _unpack_from(const Bytes& bytes, std::size_t offset, Packing packing)
+{
+    auto const value = unpack_value_from<Packing>(bytes, offset);
+    return std::make_tuple(value);
+}
+
+template <byte_packing Packing, byte_packing... Packings, readable_bytes Bytes>
+auto _unpack_from(const Bytes& bytes, std::size_t offset, Packing packing, Packings... packings)
+{
+    auto const value = unpack<Packing>(bytes, offset);
+    auto const new_offset = offset + Packing::size();
+    auto const remaining = _unpack_from(bytes, new_offset, packings...);
+    return std::tuple_cat(std::tie(value), remaining);
+}
+
+} // namespace detail
+
+template <byte_packing... Packings, readable_bytes Bytes>
+auto unpack_multiple(const Bytes& bytes, std::size_t offset)
+{
+    return detail::_unpack_from(bytes, offset, Packings{}...);
+}
+
+template <byte_packing... Packings, writable_bytes Bytes>
+void pack_into(Bytes& bytes, std::size_t offset, typename Packings::value_type... values)
+{
+    detail::_pack_into<Packings...>(bytes, offset, values...);
+}
+
+/*
 // Read sizeof(T) bytes from bytes and return them as an instance of T.
 template <std::default_initializable T, readable_bytes Bytes>
 auto read_raw(const Bytes& bytes, std::size_t offset = 0) -> T
@@ -1535,13 +1611,7 @@ auto read_integer_sequence(OutputIt first, std::size_t count, const Bytes& bytes
     }
     return first;
 }
-
-template <std::integral T, class WordOrder, std::integral U, writable_bytes Bytes>
-requires word_order<WordOrder, T>
-void write_integer(Bytes& bytes, U value, std::size_t offset = 0)
-{
-    WordOrder::template write<T>(static_cast<T>(value), bytes.data() + offset);
-}
+*/
 
 } // namespace dualis
 
@@ -1551,6 +1621,7 @@ void write_integer(Bytes& bytes, U value, std::size_t offset = 0)
 
 namespace dualis {
 
+/*
 class byte_reader
 {
 public:
@@ -1598,7 +1669,7 @@ private:
     byte_span m_data;
     std::size_t m_offset{0};
 };
-
+*/
 } // namespace dualis
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
