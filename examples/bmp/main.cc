@@ -66,8 +66,8 @@ auto readInfoHeader(byte_reader& reader) -> BitmapInfoHeader
 {
     BitmapInfoHeader infoHeader;
     infoHeader.biSize = reader.unpack<uint32_le>();
-    infoHeader.biWidth = reader.unpack<int32_le>();
-    infoHeader.biHeight = reader.unpack<int32_le>();
+    std::tie(infoHeader.biWidth, infoHeader.biHeight) =
+        reader.unpack_sequence<int32_le, int32_le>();
     infoHeader.biPlanes = reader.unpack<uint16_le>();
     infoHeader.biBitCount = reader.unpack<uint16_le>();
     infoHeader.biCompression = static_cast<BitmapCompression>(reader.unpack<uint32_le>());

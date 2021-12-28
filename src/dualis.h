@@ -1589,44 +1589,88 @@ auto unpack(const Bytes& bytes, std::size_t offset) -> typename Packing::value_t
 }
 
 template <byte_packing Packing, class U, writable_bytes Bytes>
-void pack_into(Bytes& bytes, std::size_t offset, const U& value)
+void pack(Bytes& bytes, std::size_t offset, const U& value)
 {
     Packing::pack(typename Packing::value_type(value), bytes.data() + offset);
 }
 
 namespace detail {
 
-template <byte_packing Packing, readable_bytes Bytes>
-auto _unpack_from(const Bytes& bytes, std::size_t offset, Packing packing)
+template <byte_packing Packing>
+auto _unpack_from(const std::byte* bytes, Packing packing)
+    -> std::tuple<typename Packing::value_type>
 {
-    auto const value = unpack_value_from<Packing>(bytes, offset);
-    return std::make_tuple(value);
+    return std::make_tuple(Packing::unpack(bytes));
 }
 
-template <byte_packing Packing, byte_packing... Packings, readable_bytes Bytes>
-auto _unpack_from(const Bytes& bytes, std::size_t offset, Packing packing, Packings... packings)
+template <byte_packing Packing, byte_packing... Packings>
+auto _unpack_from(const std::byte* bytes, Packing packing, Packings... packings)
 {
-    auto const value = unpack<Packing>(bytes, offset);
-    auto const new_offset = offset + Packing::size();
-    auto const remaining = _unpack_from(bytes, new_offset, packings...);
-    return std::tuple_cat(std::tie(value), remaining);
+    auto const value = Packing::unpack(bytes);
+    auto const remaining = _unpack_from(bytes + Packing::size(), packings...);
+    return std::tuple_cat(std::make_tuple(value), remaining);
+}
+
+template <byte_packing Packing, byte_packing... Packings>
+void _pack_into(std::byte* bytes, typename Packing::value_type value,
+                typename Packings::value_type... values)
+{
+    Packing::pack(value, bytes);
+    if constexpr (sizeof...(Packings) > 0)
+    {
+        _pack_into<Packings...>(bytes + Packing::size(), values...);
+    }
+}
+
+template <std::size_t Index, byte_packing... Packings>
+void _pack_into(std::byte* bytes, const std::tuple<typename Packings::value_type...>& values)
+{
+    if constexpr (Index < sizeof...(Packings))
+    {
+        using Packing = std::tuple_element_t<Index, std::tuple<Packings...>>;
+        Packing::pack(std::get<Index>(values), bytes);
+        _pack_into<Index + 1, Packings...>(bytes + Packing::size(), values);
+    }
 }
 
 } // namespace detail
 
-template <byte_packing... Packings, readable_bytes Bytes>
-auto unpack_multiple(const Bytes& bytes, std::size_t offset)
+template <byte_packing... Packings> struct sequence
 {
-    return detail::_unpack_from(bytes, offset, Packings{}...);
+    using value_type = std::tuple<typename Packings::value_type...>;
+
+    static auto unpack(const std::byte* bytes) -> value_type
+    {
+        return detail::_unpack_from(bytes, Packings{}...);
+    }
+
+    static void pack(const value_type& value, std::byte* bytes)
+    {
+        detail::_pack_into<0, Packings...>(bytes, value);
+    }
+
+    static void pack(std::byte* bytes, typename Packings::value_type... values)
+    {
+        detail::_pack_into<Packings...>(bytes, values...);
+    }
+
+    static constexpr auto size()
+    {
+        return (Packings::size() + ...);
+    }
+};
+
+template <byte_packing... Packings, readable_bytes Bytes>
+auto unpack_sequence(const Bytes& bytes, std::size_t offset)
+{
+    return unpack<sequence<Packings...>>(bytes, offset);
 }
 
-/*
 template <byte_packing... Packings, writable_bytes Bytes>
-void pack_into(Bytes& bytes, std::size_t offset, typename Packings::value_type... values)
+void pack_sequence(Bytes& bytes, std::size_t offset, typename Packings::value_type... values)
 {
-    detail::_pack_into<Packings...>(bytes, offset, values...);
+    sequence<Packings...>::pack(bytes.data() + offset, values...);
 }
-*/
 
 template <byte_packing Packing, readable_bytes Bytes, class OutputIt>
 auto unpack_n(OutputIt first, std::size_t count, const Bytes& bytes, std::size_t offset = 0)
@@ -1677,6 +1721,14 @@ public:
     {
         auto const value = ::dualis::unpack<Packing>(m_data, m_offset);
         m_offset += Packing::size();
+        return value;
+    }
+
+    template <byte_packing... Packings>
+    auto unpack_sequence() -> std::tuple<typename Packings::value_type...>
+    {
+        auto const value = ::dualis::unpack_sequence<Packings...>(m_data, m_offset);
+        m_offset += sequence<Packings...>::size();
         return value;
     }
 
