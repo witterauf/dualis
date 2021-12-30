@@ -3,18 +3,26 @@
 #include "utilities.h"
 #include <concepts>
 #include <cstdint>
+#include <ranges>
 #include <type_traits>
 
 namespace dualis {
 
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Packings
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
 namespace detail {
 
+// Implements packing of an integral type T into bytes with little endian byte order by casting the
+// given std::byte pointer to a pointer to T. This is fast, but assumes the CPU supports unaligned
+// access (since the byte pointer may point to an unaligned address).
 template <std::integral T> class _little_endian_ptrcast final
 {
 public:
     using value_type = T;
 
-    static auto unpack(const std::byte* bytes) -> T
+    [[nodiscard]] static auto unpack(const std::byte* bytes) -> T
     {
         return *reinterpret_cast<const T*>(bytes);
     }
@@ -24,18 +32,21 @@ public:
         *reinterpret_cast<T*>(bytes) = value;
     }
 
-    static constexpr auto size()
+    [[nodiscard]] static constexpr auto size()
     {
         return sizeof(value_type);
     }
 };
 
+// Implements packing of an integral type T into bytes with big endian byte order by casting the
+// given std::byte pointer to a pointer to T. This is fast, but assumes the CPU supports unaligned
+// access (since the byte pointer may point to an unaligned address).
 template <std::integral T> class _big_endian_ptrcast final
 {
 public:
     using value_type = T;
 
-    static auto unpack(const std::byte* bytes) -> T
+    [[nodiscard]] static auto unpack(const std::byte* bytes) -> T
     {
         return ::dualis::byte_swap(
             static_cast<typename std::make_unsigned<T>::type>(*reinterpret_cast<const T*>(bytes)));
@@ -47,7 +58,7 @@ public:
             ::dualis::byte_swap(static_cast<typename std::make_unsigned<T>::type>(value));
     }
 
-    static constexpr auto size()
+    [[nodiscard]] static constexpr auto size()
     {
         return sizeof(value_type);
     }
@@ -62,8 +73,6 @@ template <std::integral T> using big_endian = detail::_big_endian_ptrcast<T>;
 #error "Only architectures that allow unaligned memory access supported so far"
 #endif
 
-// default aliases
-
 using uint16_le = little_endian<uint16_t>;
 using uint32_le = little_endian<uint32_t>;
 using uint64_le = little_endian<uint64_t>;
@@ -77,11 +86,14 @@ using int16_be = big_endian<int16_t>;
 using int32_be = big_endian<int32_t>;
 using int64_be = big_endian<int64_t>;
 
+// Implements packing of any default-initializable type T into bytes and from bytes using the memory
+// layout given by the compiler. This might not match across different compilers (e.g. alignment,
+// struct packing) and architectures (e.g. big vs. little endian), so use with care.
 template <std::default_initializable T> struct raw
 {
     using value_type = T;
 
-    static auto unpack(const std::byte* bytes) -> T
+    [[nodiscard]] static auto unpack(const std::byte* bytes) -> T
     {
         T result{};
         copy_bytes(reinterpret_cast<std::byte*>(&result), bytes, size());
@@ -93,35 +105,23 @@ template <std::default_initializable T> struct raw
         copy_bytes(bytes, reinterpret_cast<const std::byte*>(&value), size());
     }
 
-    static constexpr auto size()
+    [[nodiscard]] static constexpr auto size()
     {
         return sizeof(value_type);
     }
 };
 
-template <byte_packing Packing, readable_bytes Bytes>
-auto unpack(const Bytes& bytes, std::size_t offset) -> typename Packing::value_type
-{
-    return Packing::unpack(bytes.data() + offset);
-}
-
-template <byte_packing Packing, class U, writable_bytes Bytes>
-void pack(Bytes& bytes, std::size_t offset, const U& value)
-{
-    Packing::pack(typename Packing::value_type(value), bytes.data() + offset);
-}
-
 namespace detail {
 
 template <byte_packing Packing>
-auto _unpack_from(const std::byte* bytes, Packing packing)
+[[nodiscard]] auto _unpack_from(const std::byte* bytes, Packing packing)
     -> std::tuple<typename Packing::value_type>
 {
     return std::make_tuple(Packing::unpack(bytes));
 }
 
 template <byte_packing Packing, byte_packing... Packings>
-auto _unpack_from(const std::byte* bytes, Packing packing, Packings... packings)
+[[nodiscard]] auto _unpack_from(const std::byte* bytes, Packing packing, Packings... packings)
 {
     auto const value = Packing::unpack(bytes);
     auto const remaining = _unpack_from(bytes + Packing::size(), packings...);
@@ -152,11 +152,13 @@ void _pack_into(std::byte* bytes, const std::tuple<typename Packings::value_type
 
 } // namespace detail
 
-template <byte_packing... Packings> struct sequence
+// Packs or unpacks multiple values of differing types in sequence. Each type must be specified as
+// another packing.
+template <byte_packing... Packings> struct record
 {
     using value_type = std::tuple<typename Packings::value_type...>;
 
-    static auto unpack(const std::byte* bytes) -> value_type
+    [[nodiscard]] static auto unpack(const std::byte* bytes) -> value_type
     {
         return detail::_unpack_from(bytes, Packings{}...);
     }
@@ -166,32 +168,54 @@ template <byte_packing... Packings> struct sequence
         detail::_pack_into<0, Packings...>(bytes, value);
     }
 
+    // Convenience method for pack_record that circumvents the construction of an std::tuple.
     static void pack(std::byte* bytes, typename Packings::value_type... values)
     {
         detail::_pack_into<Packings...>(bytes, values...);
     }
 
-    static constexpr auto size()
+    [[nodiscard]] static constexpr auto size()
     {
         return (Packings::size() + ...);
     }
 };
 
-template <byte_packing... Packings, readable_bytes Bytes>
-auto unpack_sequence(const Bytes& bytes, std::size_t offset)
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Packing of singular type
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+template <byte_packing Packing, byte_range Bytes>
+[[nodiscard]] auto unpack(const Bytes& bytes, std::size_t offset) -> typename Packing::value_type
 {
-    return unpack<sequence<Packings...>>(bytes, offset);
+    return Packing::unpack(std::ranges::cdata(bytes) + offset);
+}
+
+template <byte_packing Packing, class U, writable_bytes Bytes>
+void pack(Bytes& bytes, std::size_t offset, const U& value)
+{
+    Packing::pack(typename Packing::value_type(value), bytes.data() + offset);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Compound packing (multiple types, multiple values of same type)
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+template <byte_packing... Packings, byte_range Bytes>
+[[nodiscard]] auto unpack_record(const Bytes& bytes, std::size_t offset)
+{
+    return unpack<record<Packings...>>(bytes, offset);
 }
 
 template <byte_packing... Packings, writable_bytes Bytes>
-void pack_sequence(Bytes& bytes, std::size_t offset, typename Packings::value_type... values)
+void pack_record(Bytes& bytes, std::size_t offset, typename Packings::value_type... values)
 {
-    sequence<Packings...>::pack(bytes.data() + offset, values...);
+    record<Packings...>::pack(bytes.data() + offset, values...);
 }
 
-template <byte_packing Packing, readable_bytes Bytes, class OutputIt>
-auto unpack_n(OutputIt first, std::size_t count, const Bytes& bytes, std::size_t offset = 0)
-    -> OutputIt
+// Unpacks n values into the given output iterator.
+template <byte_packing Packing, byte_range Bytes, class Iterator>
+requires std::output_iterator<Iterator, typename Packing::value_type>
+auto unpack_n(const Bytes& bytes, std::size_t offset, Iterator first, std::size_t count) -> Iterator
 {
     for (decltype(count) i = 0; i < count; ++i)
     {
@@ -199,6 +223,26 @@ auto unpack_n(OutputIt first, std::size_t count, const Bytes& bytes, std::size_t
         offset += Packing::size();
     }
     return first;
+}
+
+template <byte_packing Packing, writable_bytes Bytes, std::input_iterator Iterator>
+void pack_n(Bytes& bytes, std::size_t offset, Iterator first, Iterator last)
+{
+    while (first != last)
+    {
+        pack<Packing>(bytes, offset, *first++);
+        offset += Packing::size();
+    }
+}
+
+template <byte_packing Packing, writable_bytes Bytes, std::ranges::range Range>
+void pack_n(Bytes& bytes, std::size_t offset, const Range& range)
+{
+    for (auto const& value : range)
+    {
+        pack<Packing>(bytes, offset, value);
+        offset += Packing::size();
+    }
 }
 
 } // namespace dualis

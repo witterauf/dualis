@@ -5,6 +5,45 @@
 using namespace dualis;
 using namespace dualis::literals;
 
+SCENARIO("Integer packing", "[packing][integers]")
+{
+    GIVEN("a sequence of bytes")
+    {
+        std::vector<std::byte> bytes{0x80_b, 0x80_b, 0x11_b, 0x12_b};
+
+        WHEN("unpacking with little_endian")
+        {
+            AND_WHEN("a two-byte integer")
+            {
+                AND_WHEN("it is unsigned")
+                {
+                    static_assert(sizeof(unsigned_int_t<2>) == 2);
+                    static_assert(little_endian<unsigned_int_t<2>>::size() == 2);
+                    auto const value = unpack<little_endian<unsigned_int_t<2>>>(bytes, 0);
+
+                    THEN("the value is correct")
+                    {
+                        auto const expected = 0x8080;
+                        REQUIRE(value == expected);
+                    }
+                }
+                AND_WHEN("it is signed")
+                {
+                    static_assert(sizeof(signed_int_t<2>) == 2);
+                    static_assert(little_endian<signed_int_t<2>>::size() == 2);
+                    auto const value = unpack<little_endian<signed_int_t<2>>>(bytes, 0);
+
+                    THEN("the value is correct")
+                    {
+                        auto const expected = static_cast<signed_int_t<2>>(0x8080);
+                        REQUIRE(value == expected);
+                    }
+                }
+            }
+        }
+    }
+}
+
 SCENARIO("Unpacking bytes", "[unpacking]")
 {
     GIVEN("a sequence of bytes")

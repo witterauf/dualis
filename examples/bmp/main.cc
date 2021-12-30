@@ -62,14 +62,12 @@ auto readHeader(dualis::byte_span bmp) -> std::pair<size_t, size_t>
     return std::make_pair(size, offset);
 }
 
-auto readInfoHeader(byte_reader& reader) -> BitmapInfoHeader
+auto readInfoHeader(byte_stream& reader) -> BitmapInfoHeader
 {
     BitmapInfoHeader infoHeader;
     infoHeader.biSize = reader.unpack<uint32_le>();
-    std::tie(infoHeader.biWidth, infoHeader.biHeight) =
-        reader.unpack_sequence<int32_le, int32_le>();
-    infoHeader.biPlanes = reader.unpack<uint16_le>();
-    infoHeader.biBitCount = reader.unpack<uint16_le>();
+    std::tie(infoHeader.biWidth, infoHeader.biHeight) = reader.unpack_record<int32_le, int32_le>();
+    reader >> unpack<uint16_le>(infoHeader.biPlanes) >> unpack<uint16_le>(infoHeader.biBitCount);
     infoHeader.biCompression = static_cast<BitmapCompression>(reader.unpack<uint32_le>());
     infoHeader.biImageSize = reader.unpack<uint32_le>();
     infoHeader.biXPelsPerMeter = reader.unpack<int32_le>();
@@ -80,7 +78,7 @@ auto readInfoHeader(byte_reader& reader) -> BitmapInfoHeader
     return infoHeader;
 }
 
-auto readPalette(byte_reader& reader, const BitmapInfoHeader& infoHeader) -> std::vector<uint32_t>
+auto readPalette(byte_stream& reader, const BitmapInfoHeader& infoHeader) -> std::vector<uint32_t>
 {
     std::vector<uint32_t> palette;
     if (infoHeader.paletteSize() > 0)
@@ -152,7 +150,7 @@ void printBitmapInfo(const std::filesystem::path& path)
     }
 
     auto const [size, offset] = readHeader(bmpSpan);
-    byte_reader reader{bmpSpan};
+    byte_stream reader{bmpSpan};
     reader.seekg(14);
     auto const infoHeader = readInfoHeader(reader);
     auto const palette = readPalette(reader, infoHeader);

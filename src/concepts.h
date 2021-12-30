@@ -1,18 +1,21 @@
 #pragma once
 
-#include <cstddef>
 #include <concepts>
+#include <cstddef>
 #include <iterator>
+#include <ranges>
 #include <type_traits>
 
 namespace dualis {
 
 // clang-format off
-template <class T>
-concept readable_bytes = requires(const T& t)
+template <class R>
+concept output_byte_range = std::ranges::output_range<std::byte, R> && std::ranges::contiguous_range<R>;
+
+template <class R>
+concept byte_range = std::ranges::contiguous_range<R> && requires (const R& t)
 {
-    { t.data() } -> std::same_as<const std::byte*>;
-    { t.size() } -> std::unsigned_integral;
+    { std::ranges::cdata(t) } -> std::same_as<const std::byte*>;
 };
 
 template <class T>
@@ -23,19 +26,13 @@ concept writable_bytes = requires(T& t)
 };
 
 template <class T>
-concept insertable_bytes = requires(const T& t)
-{
-    { t.begin() } -> std::forward_iterator;
-    { t.end() } -> std::forward_iterator;
-    t.insert(t.begin());
-};
-
-template <class T>
 concept size_constructible_bytes = requires(std::size_t size, T& t) {
     T{size};
     { t.data() } -> std::same_as<std::byte*>;
 };
 
+// A byte_packing describes how a given datum of a type is packed into or unpacked from an array of
+// bytes, as well as how many bytes it takes.
 template<class T>
 concept byte_packing = requires(const std::byte* bytes, std::byte* writableBytes,
                                 typename T::value_type value)

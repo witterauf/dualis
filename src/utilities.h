@@ -7,19 +7,28 @@
 namespace dualis {
 
 /// Swaps the byte order of the given integer.
-template <std::unsigned_integral T> auto byte_swap(T value) -> T;
+template <std::unsigned_integral T> [[nodiscard]] auto byte_swap(T value) -> T;
 
 template <std::size_t Width> class unsigned_int;
+template <std::size_t Width> class signed_int;
 
 template <> struct unsigned_int<2>
 {
     using type = uint16_t;
 };
 
+template <> struct signed_int<2>
+{
+    using type = int16_t;
+};
+
 template <> struct unsigned_int<4>
 {
     using type = uint32_t;
 };
+
+template <std::size_t Width> using unsigned_int_t = unsigned_int<Width>::type;
+template <std::size_t Width> using signed_int_t = signed_int<Width>::type;
 
 template <> inline auto byte_swap<uint8_t>(uint8_t value) -> uint8_t
 {
@@ -62,7 +71,7 @@ template <> inline auto byte_swap<uint64_t>(uint64_t value) -> uint64_t
 }
 
 // Use compiler-defined intrinsics if available.
-inline auto copy_bytes(std::byte* dest, const std::byte* src, std::size_t size)
+inline void copy_bytes(std::byte* dest, const std::byte* src, std::size_t size)
 {
     std::memcpy(dest, src, size);
 }

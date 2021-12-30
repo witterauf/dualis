@@ -850,12 +850,12 @@ public:
         }
     }
 
-    template <readable_bytes Bytes>
+    template <byte_range Bytes>
     explicit constexpr _byte_vector_base(const Bytes& bytes,
                                          const allocator_type allocator = allocator_type{})
-        : m_storage{bytes.size(), allocator}
+        : m_storage{std::ranges::size(bytes), allocator}
     {
-        copy_bytes(m_storage.data(), bytes.data(), bytes.size());
+        copy_bytes(m_storage.data(), std::ranges::cdata(bytes), bytes.size());
     }
 
     //== assignment ===============================================================================
@@ -1111,11 +1111,11 @@ public:
         return *this;
     }
 
-    template <readable_bytes Bytes>
+    template <byte_range Bytes>
     constexpr auto insert(size_type offset, const Bytes& bytes) -> _byte_vector_base&
     {
-        m_storage.insert(offset, bytes.size(), [&bytes](std::byte* data) {
-            copy_bytes(data, bytes.data(), bytes.size());
+        m_storage.insert(offset, std::ranges::size(bytes), [&bytes](std::byte* data) {
+            copy_bytes(data, std::ranges::cdata(bytes), std::ranges::size(bytes));
         });
         return *this;
     }
@@ -1251,9 +1251,9 @@ public:
         return *this;
     }
 
-    template <readable_bytes Bytes> constexpr auto append(const Bytes& bytes) -> _byte_vector_base&
+    template <byte_range Bytes> constexpr auto append(const Bytes& bytes) -> _byte_vector_base&
     {
-        return append(bytes.data(), bytes.size());
+        return append(std::ranges::cdata(bytes), std::ranges::size(bytes));
     }
 
     constexpr auto operator+=(std::byte value) -> _byte_vector_base&
@@ -1267,8 +1267,7 @@ public:
         return append(ilist);
     }
 
-    template <readable_bytes Bytes>
-    constexpr auto operator+=(const Bytes& bytes) -> _byte_vector_base&
+    template <byte_range Bytes> constexpr auto operator+=(const Bytes& bytes) -> _byte_vector_base&
     {
         return append(bytes);
     }
@@ -1396,11 +1395,11 @@ inline auto as_string(byte_span bytes) -> std::string
 
 namespace dualis {
 
-template <readable_bytes Bytes>
-void save_bytes(const Bytes& bytes, const std::filesystem::path& path)
+template <byte_range Bytes> void save_bytes(const Bytes& bytes, const std::filesystem::path& path)
 {
     std::ofstream output{path};
-    output.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    output.write(reinterpret_cast<const char*>(std::ranges::cdata(bytes)),
+                 std::ranges::size(bytes));
 }
 
 template <size_constructible_bytes Bytes>
