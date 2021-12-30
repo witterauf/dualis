@@ -10,19 +10,16 @@ namespace dualis {
 
 // clang-format off
 template <class R>
-concept output_byte_range = std::ranges::output_range<std::byte, R> && std::ranges::contiguous_range<R>;
-
-template <class R>
 concept byte_range = std::ranges::contiguous_range<R> && requires (const R& t)
 {
     { std::ranges::cdata(t) } -> std::same_as<const std::byte*>;
+    { std::ranges::data(t) } -> std::same_as<const std::byte*>;
 };
 
-template <class T>
-concept writable_bytes = requires(T& t)
+template <class R>
+concept writable_byte_range = byte_range<R> && requires(R& r)
 {
-    { t.data() } -> std::same_as<std::byte*>;
-    { t.size() } -> std::unsigned_integral;
+    { std::ranges::data(r) } -> std::same_as<std::byte*>;
 };
 
 template <class T>

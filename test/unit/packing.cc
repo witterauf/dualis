@@ -17,9 +17,9 @@ SCENARIO("Integer packing", "[packing][integers]")
             {
                 AND_WHEN("it is unsigned")
                 {
-                    static_assert(sizeof(unsigned_int_t<2>) == 2);
-                    static_assert(little_endian<unsigned_int_t<2>>::size() == 2);
-                    auto const value = unpack<little_endian<unsigned_int_t<2>>>(bytes, 0);
+                    static_assert(sizeof(unsigned_int<2>) == 2);
+                    static_assert(little_endian<unsigned_int<2>>::size() == 2);
+                    auto const value = unpack<little_endian<unsigned_int<2>>>(bytes, 0);
 
                     THEN("the value is correct")
                     {
@@ -29,13 +29,13 @@ SCENARIO("Integer packing", "[packing][integers]")
                 }
                 AND_WHEN("it is signed")
                 {
-                    static_assert(sizeof(signed_int_t<2>) == 2);
-                    static_assert(little_endian<signed_int_t<2>>::size() == 2);
-                    auto const value = unpack<little_endian<signed_int_t<2>>>(bytes, 0);
+                    static_assert(sizeof(signed_int<2>) == 2);
+                    static_assert(little_endian<signed_int<2>>::size() == 2);
+                    auto const value = unpack<little_endian<signed_int<2>>>(bytes, 0);
 
                     THEN("the value is correct")
                     {
-                        auto const expected = static_cast<signed_int_t<2>>(0x8080);
+                        auto const expected = static_cast<signed_int<2>>(0x8080);
                         REQUIRE(value == expected);
                     }
                 }
@@ -52,7 +52,7 @@ SCENARIO("Unpacking bytes", "[unpacking]")
 
         WHEN("unpacking two values")
         {
-            auto const [value1, value2] = unpack_sequence<uint16_le, uint16_le>(bytes, 0);
+            auto const [value1, value2] = unpack_record<uint16_le, uint16_le>(bytes, 0);
 
             THEN("the first value is correct")
             {
@@ -74,7 +74,7 @@ SCENARIO("Packing into bytes", "[packing]")
 
         WHEN("packing two values")
         {
-            pack_sequence<uint16_le, uint16_le>(bytes, 0, 1111, 2222);
+            pack_record<uint16_le, uint16_le>(bytes, 0, 1111, 2222);
 
             REQUIRE(std::to_integer<int>(bytes[0]) == (1111 & 0xff));
             REQUIRE(std::to_integer<int>(bytes[1]) == (1111 >> 8));

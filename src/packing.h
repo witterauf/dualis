@@ -86,7 +86,6 @@ using int16_be = big_endian<int16_t>;
 using int32_be = big_endian<int32_t>;
 using int64_be = big_endian<int64_t>;
 
-
 // Implements packing of any default-initializable type T into bytes and from bytes using the memory
 // layout given by the compiler. This might not match across different compilers (e.g. alignment,
 // struct packing) and architectures (e.g. big vs. little endian), so use with care.
@@ -191,10 +190,10 @@ template <byte_packing Packing, byte_range Bytes>
     return Packing::unpack(std::ranges::cdata(bytes) + offset);
 }
 
-template <byte_packing Packing, class U, writable_bytes Bytes>
+template <byte_packing Packing, class U, writable_byte_range Bytes>
 void pack(Bytes& bytes, std::size_t offset, const U& value)
 {
-    Packing::pack(typename Packing::value_type(value), bytes.data() + offset);
+    Packing::pack(typename Packing::value_type(value), std::ranges::data(bytes) + offset);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -207,10 +206,10 @@ template <byte_packing... Packings, byte_range Bytes>
     return unpack<record<Packings...>>(bytes, offset);
 }
 
-template <byte_packing... Packings, writable_bytes Bytes>
+template <byte_packing... Packings, writable_byte_range Bytes>
 void pack_record(Bytes& bytes, std::size_t offset, typename Packings::value_type... values)
 {
-    record<Packings...>::pack(bytes.data() + offset, values...);
+    record<Packings...>::pack(std::ranges::data(bytes) + offset, values...);
 }
 
 // Unpacks n values into the given output iterator.
@@ -226,7 +225,7 @@ auto unpack_n(const Bytes& bytes, std::size_t offset, Iterator first, std::size_
     return first;
 }
 
-template <byte_packing Packing, writable_bytes Bytes, std::input_iterator Iterator>
+template <byte_packing Packing, writable_byte_range Bytes, std::input_iterator Iterator>
 void pack_n(Bytes& bytes, std::size_t offset, Iterator first, Iterator last)
 {
     while (first != last)
@@ -236,7 +235,7 @@ void pack_n(Bytes& bytes, std::size_t offset, Iterator first, Iterator last)
     }
 }
 
-template <byte_packing Packing, writable_bytes Bytes, std::ranges::range Range>
+template <byte_packing Packing, writable_byte_range Bytes, std::ranges::range Range>
 void pack_n(Bytes& bytes, std::size_t offset, const Range& range)
 {
     for (auto const& value : range)
