@@ -24,7 +24,7 @@ public:
         m_offset = offset;
     }
 
-    auto span() const -> byte_span
+    auto span() const -> const byte_span&
     {
         return m_data;
     }
@@ -45,7 +45,7 @@ public:
     }
 
     template <byte_packing Packing, class OutputIt>
-    [[nodiscard]] auto unpack_n(OutputIt first, std::size_t n) -> OutputIt
+    auto unpack_n(OutputIt first, std::size_t n) -> OutputIt
     {
         auto const after = ::dualis::unpack_n<Packing>(m_data, m_offset, first, n);
         m_offset += Packing::size() * n;

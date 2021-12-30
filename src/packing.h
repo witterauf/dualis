@@ -86,6 +86,7 @@ using int16_be = big_endian<int16_t>;
 using int32_be = big_endian<int32_t>;
 using int64_be = big_endian<int64_t>;
 
+
 // Implements packing of any default-initializable type T into bytes and from bytes using the memory
 // layout given by the compiler. This might not match across different compilers (e.g. alignment,
 // struct packing) and architectures (e.g. big vs. little endian), so use with care.

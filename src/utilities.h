@@ -6,29 +6,59 @@
 
 namespace dualis {
 
-/// Swaps the byte order of the given integer.
-template <std::unsigned_integral T> [[nodiscard]] auto byte_swap(T value) -> T;
+namespace detail {
 
-template <std::size_t Width> class unsigned_int;
-template <std::size_t Width> class signed_int;
+// Provide convenient, parameterized access to integers of a given width.
+template <std::size_t Width> class _unsigned_int;
+template <std::size_t Width> class _signed_int;
 
-template <> struct unsigned_int<2>
+template <> struct _unsigned_int<1>
+{
+    using type = uint8_t;
+};
+
+template <> struct _signed_int<1>
+{
+    using type = int8_t;
+};
+
+template <> struct _unsigned_int<2>
 {
     using type = uint16_t;
 };
 
-template <> struct signed_int<2>
+template <> struct _signed_int<2>
 {
     using type = int16_t;
 };
 
-template <> struct unsigned_int<4>
+template <> struct _unsigned_int<4>
 {
     using type = uint32_t;
 };
 
-template <std::size_t Width> using unsigned_int_t = unsigned_int<Width>::type;
-template <std::size_t Width> using signed_int_t = signed_int<Width>::type;
+template <> struct _signed_int<4>
+{
+    using type = int32_t;
+};
+
+template <> struct _unsigned_int<8>
+{
+    using type = uint64_t;
+};
+
+template <> struct _signed_int<8>
+{
+    using type = int64_t;
+};
+
+} // namespace detail
+
+template <std::size_t Width> using unsigned_int = detail::_unsigned_int<Width>::type;
+template <std::size_t Width> using signed_int = detail::_signed_int<Width>::type;
+
+// Swaps the byte order of the given integer.
+template <std::unsigned_integral T> [[nodiscard]] auto byte_swap(T value) -> T;
 
 template <> inline auto byte_swap<uint8_t>(uint8_t value) -> uint8_t
 {
@@ -73,7 +103,38 @@ template <> inline auto byte_swap<uint64_t>(uint64_t value) -> uint64_t
 // Use compiler-defined intrinsics if available.
 inline void copy_bytes(std::byte* dest, const std::byte* src, std::size_t size)
 {
+#ifdef __GNUG__
+    __builtin_memcpy(dest, src, size);
+#else
     std::memcpy(dest, src, size);
+#endif
+}
+
+inline void move_bytes(std::byte* dest, const std::byte* src, std::size_t size)
+{
+#ifdef __GNUG__
+    __builtin_memmove(dest, src, size);
+#else
+    std::memmove(dest, src, size);
+#endif
+}
+
+inline void set_bytes(std::byte* dest, std::byte value, std::size_t size)
+{
+#ifdef __GNUG__
+    __builtin_memset(dest, std::to_integer<int>(value), size);
+#else
+    std::memset(dest, std::to_integer<int>(value), size);
+#endif
+}
+
+inline int compare_bytes(const std::byte* a, const std::byte* b, std::size_t size)
+{
+#ifdef __GNUG__
+    return __builtin_memcmp(dest, src, size);
+#else
+    return std::memcmp(a, b, size);
+#endif
 }
 
 namespace detail {

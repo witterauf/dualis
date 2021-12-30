@@ -632,7 +632,7 @@ public:
         }
         else
         {
-            copy_bytes(data() + index + count, data() + index, count);
+            move_bytes(data() + index + count, data() + index, count);
             inserter(data() + index);
         }
         m_length = new_size;
@@ -669,7 +669,7 @@ public:
 
     constexpr void erase(size_type offset, size_type count)
     {
-        copy_bytes(data() + offset, data() + offset + count, size() - offset - count);
+        move_bytes(data() + offset, data() + offset + count, size() - offset - count);
         m_length -= count;
     }
 
@@ -1098,7 +1098,7 @@ public:
     constexpr auto insert(size_type offset, size_type count, std::byte value) -> _byte_vector_base&
     {
         m_storage.insert(offset, count, [count, value](std::byte* data) {
-            std::memset(data, std::to_integer<int>(value), count);
+            set_bytes(data, value, count);
         });
         return *this;
     }
