@@ -13,6 +13,7 @@ using writable_byte_span = std::span<std::byte>;
 using byte_span = std::span<const std::byte>;
 
 static_assert(byte_range<byte_span>);
+static_assert(!writable_byte_range<byte_span>);
 static_assert(byte_range<writable_byte_span>);
 
 class const_byte_iterator
@@ -21,6 +22,7 @@ public:
     using iterator_concept = std::contiguous_iterator_tag;
     using iterator_category = std::random_access_iterator_tag;
     using value_type = std::byte;
+    using element_type = const value_type;
     using difference_type = std::ptrdiff_t;
     using pointer = const std::byte*;
     using reference = const std::byte&;
@@ -77,7 +79,7 @@ public:
         return *this;
     }
 
-    [[nodiscard]] constexpr auto operator+(const difference_type offset) noexcept
+    [[nodiscard]] constexpr auto operator+(difference_type offset) const noexcept
         -> const_byte_iterator
     {
         auto temp = *this;
@@ -91,7 +93,7 @@ public:
         return *this;
     }
 
-    [[nodiscard]] constexpr auto operator-(const difference_type offset) noexcept
+    [[nodiscard]] constexpr auto operator-(const difference_type offset) const noexcept
         -> const_byte_iterator
     {
         auto temp = *this;
@@ -125,12 +127,19 @@ private:
     const std::byte* m_pointer{nullptr};
 };
 
-class byte_iterator : public const_byte_iterator
+inline auto operator+(const_byte_iterator::difference_type diff, const const_byte_iterator iter)
+    -> const_byte_iterator
+{
+    return iter + diff;
+}
+
+class byte_iterator final : public const_byte_iterator
 {
 public:
     using iterator_concept = std::contiguous_iterator_tag;
     using iterator_category = std::random_access_iterator_tag;
     using value_type = std::byte;
+    using element_type = value_type;
     using difference_type = std::ptrdiff_t;
     using pointer = std::byte*;
     using reference = std::byte&;
@@ -192,6 +201,8 @@ public:
         return *this;
     }
 
+    using const_byte_iterator::operator-;
+
     [[nodiscard]] constexpr auto operator-(const difference_type offset) const noexcept
         -> byte_iterator
     {
@@ -200,14 +211,20 @@ public:
         return temp;
     }
 
-    using const_byte_iterator::operator-;
-
     [[nodiscard]] constexpr auto operator[](const difference_type offset) const noexcept
         -> reference
     {
         return const_cast<reference>(const_byte_iterator::operator[](offset));
     }
 };
+
+inline auto operator+(byte_iterator::difference_type diff, byte_iterator iter) -> byte_iterator
+{
+    return iter += diff;
+}
+
+static_assert(std::contiguous_iterator<const_byte_iterator>);
+static_assert(std::contiguous_iterator<byte_iterator>);
 
 namespace detail {
 
@@ -1435,6 +1452,9 @@ void swap(_byte_vector_base<Allocator, EmbeddedSize>& a,
 
 using byte_string = _byte_vector_base<>;
 using byte_vector = _byte_vector_base<std::allocator<std::byte>, 0>;
+
+static_assert(writable_byte_range<byte_string>);
+static_assert(writable_byte_range<byte_vector>);
 
 inline auto as_string_view(byte_span bytes) -> std::string_view
 {
