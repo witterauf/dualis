@@ -86,6 +86,9 @@ using int16_be = big_endian<int16_t>;
 using int32_be = big_endian<int32_t>;
 using int64_be = big_endian<int64_t>;
 
+static_assert(byte_packing<uint16_le>);
+static_assert(byte_packing<int16_be>);
+
 // Implements packing of any default-initializable type T into bytes and from bytes using the memory
 // layout given by the compiler. This might not match across different compilers (e.g. alignment,
 // struct packing) and architectures (e.g. big vs. little endian), so use with care.
@@ -156,6 +159,7 @@ void _pack_into(std::byte* bytes, const std::tuple<typename Packings::value_type
 // another packing.
 template <byte_packing... Packings> struct tuple_packing
 {
+    static_assert(sizeof...(Packings) > 0);
     using value_type = std::tuple<typename Packings::value_type...>;
 
     [[nodiscard]] static auto unpack(const std::byte* bytes) -> value_type
@@ -179,6 +183,10 @@ template <byte_packing... Packings> struct tuple_packing
         return (Packings::size() + ...);
     }
 };
+
+// Make sure tuple_packing is a packing using example arguments.
+static_assert(byte_packing<tuple_packing<uint16_le>>);
+static_assert(byte_packing<tuple_packing<uint16_le, uint16_le>>);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Packing of singular type

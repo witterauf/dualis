@@ -84,7 +84,7 @@ auto readPalette(byte_stream& reader, const BitmapInfoHeader& infoHeader) -> std
     if (infoHeader.paletteSize() > 0)
     {
         palette.resize(infoHeader.paletteSize());
-        reader.unpack_n<uint32_le>(palette.begin(), infoHeader.paletteSize());
+        reader.unpack_range<uint32_le>(palette.begin(), infoHeader.paletteSize());
     }
     return palette;
 }
