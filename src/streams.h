@@ -37,17 +37,17 @@ public:
     }
 
     template <byte_packing... Packings>
-    [[nodiscard]] auto unpack_record() -> std::tuple<typename Packings::value_type...>
+    [[nodiscard]] auto unpack_tuple() -> std::tuple<typename Packings::value_type...>
     {
-        auto const value = ::dualis::unpack_record<Packings...>(m_data, m_offset);
-        m_offset += record<Packings...>::size();
+        auto const value = ::dualis::unpack_tuple<Packings...>(m_data, m_offset);
+        m_offset += tuple_packing<Packings...>::size();
         return value;
     }
 
     template <byte_packing Packing, class OutputIt>
-    auto unpack_n(OutputIt first, std::size_t n) -> OutputIt
+    auto unpack_range(OutputIt first, std::size_t n) -> OutputIt
     {
-        auto const after = ::dualis::unpack_n<Packing>(m_data, m_offset, first, n);
+        auto const after = ::dualis::unpack_range<Packing>(m_data, m_offset, first, n);
         m_offset += Packing::size() * n;
         return after;
     }

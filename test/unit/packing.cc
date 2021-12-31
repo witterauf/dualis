@@ -52,7 +52,7 @@ SCENARIO("Unpacking bytes", "[unpacking]")
 
         WHEN("unpacking two values")
         {
-            auto const [value1, value2] = unpack_record<uint16_le, uint16_le>(bytes, 0);
+            auto const [value1, value2] = unpack_tuple<uint16_le, uint16_le>(bytes, 0);
 
             THEN("the first value is correct")
             {
@@ -74,7 +74,7 @@ SCENARIO("Packing into bytes", "[packing]")
 
         WHEN("packing two values")
         {
-            pack_record<uint16_le, uint16_le>(bytes, 0, 1111, 2222);
+            pack_tuple<uint16_le, uint16_le>(bytes, 0, 1111, 2222);
 
             REQUIRE(std::to_integer<int>(bytes[0]) == (1111 & 0xff));
             REQUIRE(std::to_integer<int>(bytes[1]) == (1111 >> 8));

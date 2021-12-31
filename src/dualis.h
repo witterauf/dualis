@@ -8,3 +8,7 @@
 #include "packing.h"
 #include "streams.h"
 #include "utilities.h"
+
+namespace dualis {
+#include "containers_impl.h"
+}

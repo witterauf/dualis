@@ -27,7 +27,7 @@ public:
         return *reinterpret_cast<const T*>(bytes);
     }
 
-    static void pack(T value, std::byte* bytes)
+    static void pack(std::byte* bytes, T value)
     {
         *reinterpret_cast<T*>(bytes) = value;
     }
@@ -52,7 +52,7 @@ public:
             static_cast<typename std::make_unsigned<T>::type>(*reinterpret_cast<const T*>(bytes)));
     }
 
-    static void pack(T value, std::byte* bytes)
+    static void pack(std::byte* bytes, T value)
     {
         *reinterpret_cast<T*>(bytes) =
             ::dualis::byte_swap(static_cast<typename std::make_unsigned<T>::type>(value));
@@ -100,7 +100,7 @@ template <std::default_initializable T> struct raw
         return result;
     }
 
-    static void pack(const T& value, std::byte* bytes)
+    static void pack(std::byte* bytes, const T& value)
     {
         copy_bytes(bytes, reinterpret_cast<const std::byte*>(&value), size());
     }
@@ -132,7 +132,7 @@ template <byte_packing Packing, byte_packing... Packings>
 void _pack_into(std::byte* bytes, typename Packing::value_type value,
                 typename Packings::value_type... values)
 {
-    Packing::pack(value, bytes);
+    Packing::pack(bytes, value);
     if constexpr (sizeof...(Packings) > 0)
     {
         _pack_into<Packings...>(bytes + Packing::size(), values...);
@@ -154,7 +154,7 @@ void _pack_into(std::byte* bytes, const std::tuple<typename Packings::value_type
 
 // Packs or unpacks multiple values of differing types in sequence. Each type must be specified as
 // another packing.
-template <byte_packing... Packings> struct record
+template <byte_packing... Packings> struct tuple_packing
 {
     using value_type = std::tuple<typename Packings::value_type...>;
 
@@ -163,13 +163,13 @@ template <byte_packing... Packings> struct record
         return detail::_unpack_from(bytes, Packings{}...);
     }
 
-    static void pack(const value_type& value, std::byte* bytes)
+    static void pack(std::byte* bytes, const value_type& value)
     {
         detail::_pack_into<0, Packings...>(bytes, value);
     }
 
-    // Convenience method for pack_record that circumvents the construction of an std::tuple.
-    static void pack(std::byte* bytes, typename Packings::value_type... values)
+    // Convenience method for pack_tuple that circumvents the construction of an std::tuple.
+    static void pack(std::byte* bytes, const typename Packings::value_type&... values)
     {
         detail::_pack_into<Packings...>(bytes, values...);
     }
@@ -193,7 +193,7 @@ template <byte_packing Packing, byte_range Bytes>
 template <byte_packing Packing, class U, writable_byte_range Bytes>
 void pack(Bytes& bytes, std::size_t offset, const U& value)
 {
-    Packing::pack(typename Packing::value_type(value), std::ranges::data(bytes) + offset);
+    Packing::pack(std::ranges::data(bytes) + offset, typename Packing::value_type(value));
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -201,21 +201,22 @@ void pack(Bytes& bytes, std::size_t offset, const U& value)
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 template <byte_packing... Packings, byte_range Bytes>
-[[nodiscard]] auto unpack_record(const Bytes& bytes, std::size_t offset)
+[[nodiscard]] auto unpack_tuple(const Bytes& bytes, std::size_t offset)
 {
-    return unpack<record<Packings...>>(bytes, offset);
+    return unpack<tuple_packing<Packings...>>(bytes, offset);
 }
 
 template <byte_packing... Packings, writable_byte_range Bytes>
-void pack_record(Bytes& bytes, std::size_t offset, typename Packings::value_type... values)
+void pack_tuple(Bytes& bytes, std::size_t offset, const typename Packings::value_type&... values)
 {
-    record<Packings...>::pack(std::ranges::data(bytes) + offset, values...);
+    tuple_packing<Packings...>::pack(std::ranges::data(bytes) + offset, values...);
 }
 
 // Unpacks n values into the given output iterator.
 template <byte_packing Packing, byte_range Bytes, class Iterator>
 requires std::output_iterator<Iterator, typename Packing::value_type>
-auto unpack_n(const Bytes& bytes, std::size_t offset, Iterator first, std::size_t count) -> Iterator
+auto unpack_range(const Bytes& bytes, std::size_t offset, Iterator first, std::size_t count)
+    -> Iterator
 {
     for (decltype(count) i = 0; i < count; ++i)
     {
@@ -226,7 +227,7 @@ auto unpack_n(const Bytes& bytes, std::size_t offset, Iterator first, std::size_
 }
 
 template <byte_packing Packing, writable_byte_range Bytes, std::input_iterator Iterator>
-void pack_n(Bytes& bytes, std::size_t offset, Iterator first, Iterator last)
+void pack_range(Bytes& bytes, std::size_t offset, Iterator first, Iterator last)
 {
     while (first != last)
     {
@@ -236,7 +237,7 @@ void pack_n(Bytes& bytes, std::size_t offset, Iterator first, Iterator last)
 }
 
 template <byte_packing Packing, writable_byte_range Bytes, std::ranges::range Range>
-void pack_n(Bytes& bytes, std::size_t offset, const Range& range)
+void pack_range(Bytes& bytes, std::size_t offset, const Range& range)
 {
     for (auto const& value : range)
     {

@@ -1553,6 +1553,87 @@ SCENARIO(CLASS_UNDER_TEST ": appending", "[containers]")
                 }
             }
         }
+
+        AND_GIVEN("uint16_t value;")
+        {
+            const uint16_t value = 0x1234;
+
+            WHEN("bytes.append_packed<uint16_le>(value);")
+            {
+                bytes.append_packed<uint16_le>(value);
+
+                THEN("bytes is 2 longer")
+                {
+                    REQUIRE(bytes.size() == old_size + uint16_le::size());
+                }
+                THEN("the last two bytes are the little-endian representation of value")
+                {
+                    auto const span = dualis::byte_span(bytes).subspan(old_size);
+                    REQUIRE_THAT(span, EqualsByteRange(std::vector<std::byte>{0x34_b, 0x12_b}));
+                }
+                THEN("the first elements remain unchanged")
+                {
+                    REQUIRE_THAT(bytes, StartsWithBytes(expected_values));
+                }
+            }
+        }
+        AND_GIVEN("uint16_t value1, value2;")
+        {
+            const uint16_t value1 = 0x1234;
+            const uint16_t value2 = 0x5678;
+
+            WHEN("bytes.append_packed<uint16_le, uint16_le>(value1, value2);")
+            {
+                bytes.append_packed<uint16_le, uint16_le>(value1, value2);
+
+                THEN("bytes is 2*2 longer")
+                {
+                    REQUIRE(bytes.size() == old_size + uint16_le::size() * 2);
+                }
+                THEN("the last two bytes are the little-endian representation of value2")
+                {
+                    auto const span = dualis::byte_span(bytes).subspan(old_size + 2);
+                    REQUIRE_THAT(span, EqualsByteRange(std::vector<std::byte>{0x78_b, 0x56_b}));
+                }
+                THEN("the first two new bytes are the little-endian representation of value1")
+                {
+                    auto const span = dualis::byte_span(bytes).subspan(old_size, 2);
+                    REQUIRE_THAT(span, EqualsByteRange(std::vector<std::byte>{0x34_b, 0x12_b}));
+                }
+                THEN("the first elements remain unchanged")
+                {
+                    REQUIRE_THAT(bytes, StartsWithBytes(expected_values));
+                }
+            }
+        }
+        AND_GIVEN("std::ranges::range values; // 2 * uint16_t")
+        {
+            const uint16_t values[] = {0x1234, 0x5678};
+
+            WHEN("bytes.append_packed_range<uint16_le>(values);")
+            {
+                bytes.append_packed_range<uint16_le>(values);
+
+                THEN("bytes is 2*2 longer")
+                {
+                    REQUIRE(bytes.size() == old_size + uint16_le::size() * 2);
+                }
+                THEN("the last two bytes are the little-endian representation of values[1]")
+                {
+                    auto const span = dualis::byte_span(bytes).subspan(old_size + 2);
+                    REQUIRE_THAT(span, EqualsByteRange(std::vector<std::byte>{0x78_b, 0x56_b}));
+                }
+                THEN("the first two new bytes are the little-endian representation of values[0]")
+                {
+                    auto const span = dualis::byte_span(bytes).subspan(old_size, 2);
+                    REQUIRE_THAT(span, EqualsByteRange(std::vector<std::byte>{0x34_b, 0x12_b}));
+                }
+                THEN("the first elements remain unchanged")
+                {
+                    REQUIRE_THAT(bytes, StartsWithBytes(expected_values));
+                }
+            }
+        }
     }
 }
 

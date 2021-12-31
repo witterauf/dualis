@@ -12,6 +12,9 @@ namespace dualis {
 using writable_byte_span = std::span<std::byte>;
 using byte_span = std::span<const std::byte>;
 
+static_assert(byte_range<byte_span>);
+static_assert(byte_range<writable_byte_span>);
+
 class const_byte_iterator
 {
 public:
@@ -1097,9 +1100,8 @@ public:
 
     constexpr auto insert(size_type offset, size_type count, std::byte value) -> _byte_vector_base&
     {
-        m_storage.insert(offset, count, [count, value](std::byte* data) {
-            set_bytes(data, value, count);
-        });
+        m_storage.insert(offset, count,
+                         [count, value](std::byte* data) { set_bytes(data, value, count); });
         return *this;
     }
 
@@ -1188,6 +1190,29 @@ public:
         return begin() + index;
     }
 
+    template <byte_packing Packing>
+    constexpr auto insert_packed(size_type offset, const typename Packing::value_type& value)
+        -> _byte_vector_base&
+    {
+        m_storage.insert(offset, Packing::size(),
+                         [value](std::byte* data) { Packing::pack(data, value); });
+        return *this;
+    }
+
+    template <byte_packing... Packings>
+    constexpr auto insert_packed_tuple(size_type offset,
+                                       const typename Packings::value_type&... values)
+        -> _byte_vector_base&
+    {
+        m_storage.insert(offset, tuple_packing<Packings...>::size(), [values](std::byte* dest) {
+            tuple_packing<Packings...>::pack(dest, values...);
+        });
+        return *this;
+    }
+
+    template <byte_packing Packing, std::ranges::sized_range Range>
+    constexpr auto insert_packed_range(size_type offset, const Range& range) -> _byte_vector_base&;
+
     //== erase() ==================================================================================
 
     constexpr auto erase(size_type offset = 0, size_type count = npos) -> _byte_vector_base&
@@ -1255,6 +1280,39 @@ public:
     {
         return append(std::ranges::cdata(bytes), std::ranges::size(bytes));
     }
+
+    template <byte_packing Packing>
+    constexpr auto append_packed(const typename Packing::value_type& value) -> _byte_vector_base&
+    {
+        m_storage.append(Packing::size(), [value](std::byte* dest) { Packing::pack(dest, value); });
+        return *this;
+    }
+
+    // Convenience method for appending packed tuples. This overload is declared for at least two
+    // values because otherwise, append_packed would become ambiguous for one value.
+    template <byte_packing Packing, byte_packing Packing2, byte_packing... Packings>
+    constexpr auto append_packed(const typename Packing::value_type& value,
+                                 const typename Packing2::value_type& value2,
+                                 const typename Packings::value_type&... values)
+        -> _byte_vector_base&
+    {
+        return append_packed_tuple<Packing, Packing2, Packings...>(value, value2, values...);
+    }
+
+    template <byte_packing... Packings>
+    constexpr auto append_packed_tuple(const typename Packings::value_type&... values)
+        -> _byte_vector_base&
+    {
+        m_storage.append(tuple_packing<Packings...>::size(), [&values...](std::byte* dest) {
+            tuple_packing<Packings...>::pack(dest, values...);
+        });
+        return *this;
+    }
+
+    // Requires a different method name than append_packed because otherwise, it might become
+    // ambiguous in case Packing::value_type is a range.
+    template <byte_packing Packing, std::ranges::sized_range Range>
+    constexpr auto append_packed_range(const Range& range) -> _byte_vector_base&;
 
     constexpr auto operator+=(std::byte value) -> _byte_vector_base&
     {
