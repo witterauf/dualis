@@ -28,8 +28,9 @@ concept size_constructible_bytes = requires(std::size_t size, T& t) {
 // A byte_packing describes how a given datum of a type is packed into or unpacked from an array of
 // bytes, as well as how many bytes it takes.
 template<class T>
-concept byte_packing = requires(const std::byte* bytes, std::byte* writable_bytes,
-                                typename T::value_type value)
+concept byte_packing = requires(const std::byte* bytes,
+                                std::byte* writable_bytes,
+                                const typename T::value_type& value)
 {
     typename T::value_type;
     { T::unpack(bytes) } -> std::same_as<typename T::value_type>;
