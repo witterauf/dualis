@@ -53,13 +53,13 @@ std::cout << width << "x" << std::abs(height) << "\n";
 ### Requirements
 
 `dualis` depends on C++20 features, in particular concepts and ranges, and, consequently, requires a compiler and standard library that support these features.
-For reference, `dualis` has been successfully compiled with the following compilers:
+For reference, `dualis` has been successfully compiled with the following compilers and standard libraries:
 
 | Compiler | tested version |
 |----------|-----------------|
-| Visual C++ | 17.0.2 (VS2022) |
-| clang | 11 |
-| gcc | 10 |
+| Visual C++ | 19.30.30706 (Visual Studio 17.0.2) |
+| clang | 11.1.0 (with stdlibc++ of gcc 10) |
+| gcc | 10.2.1 |
 
 When using the CMake project, `dualis` also requires CMake >= 3.15.
 Finally, to build the tests, you need Catch2 v3.

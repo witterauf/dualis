@@ -54,8 +54,8 @@ template <> struct _signed_int<8>
 
 } // namespace detail
 
-template <std::size_t Width> using unsigned_int = detail::_unsigned_int<Width>::type;
-template <std::size_t Width> using signed_int = detail::_signed_int<Width>::type;
+template <std::size_t Width> using unsigned_int = typename detail::_unsigned_int<Width>::type;
+template <std::size_t Width> using signed_int = typename detail::_signed_int<Width>::type;
 
 // Swaps the byte order of the given integer.
 template <std::unsigned_integral T> [[nodiscard]] auto byte_swap(T value) -> T;
@@ -131,10 +131,16 @@ inline void set_bytes(std::byte* dest, std::byte value, std::size_t size)
 inline int compare_bytes(const std::byte* a, const std::byte* b, std::size_t size)
 {
 #ifdef __GNUG__
-    return __builtin_memcmp(dest, src, size);
+    return __builtin_memcmp(a, b, size);
 #else
     return std::memcmp(a, b, size);
 #endif
+}
+
+// From https://github.com/microsoft/GSL/blob/main/include/gsl/util
+template <class T, class U> [[nodiscard]] constexpr T narrow_cast(U&& u) noexcept
+{
+    return static_cast<T>(std::forward<U>(u));
 }
 
 namespace detail {

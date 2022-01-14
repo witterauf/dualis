@@ -2,6 +2,7 @@
 
 #include "concepts.h"
 #include "utilities.h"
+#include <cstring>
 #include <initializer_list>
 #include <span>
 #include <stdexcept>
@@ -22,7 +23,6 @@ public:
     using iterator_concept = std::contiguous_iterator_tag;
     using iterator_category = std::random_access_iterator_tag;
     using value_type = std::byte;
-    using element_type = const value_type;
     using difference_type = std::ptrdiff_t;
     using pointer = const std::byte*;
     using reference = const std::byte&;
@@ -139,7 +139,6 @@ public:
     using iterator_concept = std::contiguous_iterator_tag;
     using iterator_category = std::random_access_iterator_tag;
     using value_type = std::byte;
-    using element_type = value_type;
     using difference_type = std::ptrdiff_t;
     using pointer = std::byte*;
     using reference = std::byte&;
@@ -222,6 +221,40 @@ inline auto operator+(byte_iterator::difference_type diff, byte_iterator iter) -
 {
     return iter += diff;
 }
+
+} // namespace dualis
+
+// Usually, it would suffice to provide element_type as a nested alias within the iterator classes.
+// Then, the default implementation of std::pointer_traits would deduce all necessary types.
+// However, because of a bug in the gcc-10 standard library implementation, this fails because
+// there's both a value_type and element_type. This is why std::pointer_traits is explicitly
+// specialized here.
+
+template <> struct std::pointer_traits<dualis::const_byte_iterator>
+{
+    using pointer = dualis::const_byte_iterator;
+    using element_type = const dualis::const_byte_iterator::value_type;
+    using difference_type = dualis::const_byte_iterator::difference_type;
+
+    static auto to_address(pointer p) noexcept -> element_type*
+    {
+        return p.operator->();
+    }
+};
+
+template <> struct std::pointer_traits<dualis::byte_iterator>
+{
+    using pointer = dualis::byte_iterator;
+    using element_type = dualis::byte_iterator::value_type;
+    using difference_type = dualis::byte_iterator::difference_type;
+
+    static auto to_address(pointer p) noexcept -> element_type*
+    {
+        return p.operator->();
+    }
+};
+
+namespace dualis {
 
 static_assert(std::contiguous_iterator<const_byte_iterator>);
 static_assert(std::contiguous_iterator<byte_iterator>);
@@ -324,7 +357,7 @@ private:
 static_assert(sizeof(_allocator_hider<std::allocator<std::byte>, std::byte*>) ==
               sizeof(std::byte*));
 
-template <class Allocator, Allocator::size_type LocalSize = 16> class _byte_storage final
+template <class Allocator, typename Allocator::size_type LocalSize = 16> class _byte_storage final
 {
 public:
     using allocator_type = Allocator;
@@ -743,23 +776,27 @@ private:
     detail::_allocator_hider<allocator_type, pointer> m_allocated;
     size_type m_length{0};
 
-    template <size_type N> union compressed_t
+    // Also templated on SizeType to make the specialization on N == 0 a partial specialization;
+    // otherwise, gcc complains that full specializations are not allowed in class scope.
+    // (Although they are, see CWG727---it's an acknowledged bug:
+    //  https://gcc.gnu.org/bugzilla/show_bug.cgi?id=85282)
+    template <class SizeType, std::size_t N> union compressed_t
     {
-        size_type capacity;
+        SizeType capacity;
         std::byte local[N];
     };
     // If BufferSize == 0 then don't even provide the array m_data.local to force compiler
     // errors in case any method accesses m_data.local although it shouldn't. (Note: this is
     // possible because of "if constexpr".)
-    template <> union compressed_t<0>
+    template <class SizeType> union compressed_t<SizeType, 0>
     {
-        size_type capacity;
+        SizeType capacity;
     };
 
-    static_assert(sizeof(compressed_t<0>) == sizeof(size_type));
-    static_assert(sizeof(compressed_t<sizeof(size_type) * 2>) == sizeof(size_type) * 2);
+    static_assert(sizeof(compressed_t<size_type, 0>) == sizeof(size_type));
+    static_assert(sizeof(compressed_t<size_type, sizeof(size_type) * 2>) == sizeof(size_type) * 2);
 
-    compressed_t<BufferSize> m_data{0}; // initializes capacity to 0
+    compressed_t<size_type, BufferSize> m_data{0}; // initializes capacity to 0
 };
 
 } // namespace detail
@@ -843,7 +880,7 @@ public:
     template <std::contiguous_iterator Iterator>
     constexpr byte_container(Iterator begin, Iterator end,
                              const allocator_type& allocator = allocator_type{})
-        : m_storage{end - begin, allocator}
+        : m_storage{narrow_cast<size_type>(end - begin), allocator}
     {
         copy_bytes(m_storage.data(), std::to_address(begin), end - begin);
     }
@@ -1221,13 +1258,7 @@ public:
     template <byte_packing... Packings>
     constexpr auto insert_packed_tuple(size_type offset,
                                        const typename Packings::value_type&... values)
-        -> byte_container&
-    {
-        m_storage.insert(offset, tuple_packing<Packings...>::size(), [values](std::byte* dest) {
-            tuple_packing<Packings...>::pack(dest, values...);
-        });
-        return *this;
-    }
+        -> byte_container&;
 
     template <byte_packing Packing, std::ranges::sized_range Range>
     constexpr auto insert_packed_range(size_type offset, const Range& range) -> byte_container&;
@@ -1319,13 +1350,7 @@ public:
 
     template <byte_packing... Packings>
     constexpr auto append_packed_tuple(const typename Packings::value_type&... values)
-        -> byte_container&
-    {
-        m_storage.append(tuple_packing<Packings...>::size(), [&values...](std::byte* dest) {
-            tuple_packing<Packings...>::pack(dest, values...);
-        });
-        return *this;
-    }
+        -> byte_container&;
 
     // Requires a different method name than append_packed because otherwise, it might become
     // ambiguous in case Packing::value_type is a range.

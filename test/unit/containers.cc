@@ -996,11 +996,11 @@ SCENARIO(CLASS_UNDER_TEST ": inserting and erasing elements", "[containers]")
 
 #undef CLASS_UNDER_TEST
 
-#define CLASS_UNDER_TEST "_byte_vector_base"
+#define CLASS_UNDER_TEST "byte_container"
 
 SCENARIO(CLASS_UNDER_TEST ": construction", "[containers]")
 {
-    using byte_vector_base = dualis::_byte_vector_base<not_always_equal_allocator>;
+    using byte_vector_base = dualis::byte_container<not_always_equal_allocator>;
 
     WHEN(CLASS_UNDER_TEST " bytes{}; // default-construction")
     {
@@ -1245,7 +1245,7 @@ SCENARIO(CLASS_UNDER_TEST ": construction", "[containers]")
 
 SCENARIO(CLASS_UNDER_TEST ": assignment", "[containers]")
 {
-    using byte_vector_base = dualis::_byte_vector_base<not_always_equal_allocator>;
+    using byte_vector_base = dualis::byte_container<not_always_equal_allocator>;
 
     GIVEN(CLASS_UNDER_TEST " bytes;")
     {
@@ -1305,7 +1305,7 @@ SCENARIO(CLASS_UNDER_TEST ": assignment", "[containers]")
 
 SCENARIO(CLASS_UNDER_TEST ": iterators", "[containers]")
 {
-    using byte_vector_base = dualis::_byte_vector_base<not_always_equal_allocator>;
+    using byte_vector_base = dualis::byte_container<not_always_equal_allocator>;
 
     GIVEN(CLASS_UNDER_TEST " bytes; // non-empty")
     {
@@ -1332,7 +1332,7 @@ SCENARIO(CLASS_UNDER_TEST ": iterators", "[containers]")
 
 SCENARIO(CLASS_UNDER_TEST ": element access", "[containers]")
 {
-    using byte_vector_base = dualis::_byte_vector_base<not_always_equal_allocator>;
+    using byte_vector_base = dualis::byte_container<not_always_equal_allocator>;
 
     GIVEN(CLASS_UNDER_TEST " bytes; // non-empty")
     {
@@ -1406,7 +1406,7 @@ SCENARIO(CLASS_UNDER_TEST ": element access", "[containers]")
 
 SCENARIO(CLASS_UNDER_TEST ": comparisons", "[containers]")
 {
-    using byte_vector_base = dualis::_byte_vector_base<not_always_equal_allocator>;
+    using byte_vector_base = dualis::byte_container<not_always_equal_allocator>;
 
     GIVEN(CLASS_UNDER_TEST " a, b;")
     {
@@ -1454,7 +1454,7 @@ SCENARIO(CLASS_UNDER_TEST ": comparisons", "[containers]")
 
 SCENARIO(CLASS_UNDER_TEST ": conversions", "[containers]")
 {
-    using byte_vector_base = dualis::_byte_vector_base<not_always_equal_allocator>;
+    using byte_vector_base = dualis::byte_container<not_always_equal_allocator>;
 
     GIVEN(CLASS_UNDER_TEST " bytes;")
     {
@@ -1485,7 +1485,7 @@ SCENARIO(CLASS_UNDER_TEST ": conversions", "[containers]")
 
 SCENARIO(CLASS_UNDER_TEST ": appending", "[containers]")
 {
-    using byte_vector_base = dualis::_byte_vector_base<not_always_equal_allocator>;
+    using byte_vector_base = dualis::byte_container<not_always_equal_allocator>;
 
     GIVEN(CLASS_UNDER_TEST " bytes;")
     {
@@ -1639,7 +1639,7 @@ SCENARIO(CLASS_UNDER_TEST ": appending", "[containers]")
 
 SCENARIO(CLASS_UNDER_TEST ": insertion", "[containers]")
 {
-    using byte_vector_base = dualis::_byte_vector_base<not_always_equal_allocator>;
+    using byte_vector_base = dualis::byte_container<not_always_equal_allocator>;
 
     GIVEN(CLASS_UNDER_TEST " bytes;")
     {
@@ -1676,7 +1676,7 @@ SCENARIO(CLASS_UNDER_TEST ": insertion", "[containers]")
 
 SCENARIO(CLASS_UNDER_TEST ": erasing", "[containers]")
 {
-    using byte_vector_base = dualis::_byte_vector_base<not_always_equal_allocator>;
+    using byte_vector_base = dualis::byte_container<not_always_equal_allocator>;
 
     GIVEN(CLASS_UNDER_TEST " bytes;")
     {
