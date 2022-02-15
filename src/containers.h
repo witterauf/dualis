@@ -290,6 +290,16 @@ public:
         return *this;
     }
 
+    constexpr void assign(const Alloc& allocator)
+    {
+        *this = allocator;
+    }
+
+    constexpr void assign(Alloc&& allocator)
+    {
+        *this = std::move(allocator);
+    }
+
     constexpr void swap(_allocator_hider& other) noexcept
     {
         if constexpr (std::allocator_traits<Alloc>::propagate_on_container_swap::value)
@@ -1451,19 +1461,19 @@ public:
     auto extract(size_type offset = 0, size_type count = npos) const -> byte_container
     {
         auto const actual_count = count == npos ? size() - offset : count;
-        return byte_container{m_storage.data() + offset, m_storage.size()};
+        return byte_container{m_storage.data() + offset, actual_count};
     }
 
     auto subspan(size_type offset = 0, size_type count = npos) const -> byte_span
     {
         auto const actual_count = count == npos ? size() - offset : count;
-        return byte_span{m_storage.data() + offset, m_storage.size()};
+        return byte_span{m_storage.data() + offset, actual_count};
     }
 
     auto writable_subspan(size_type offset = 0, size_type count = npos) -> writable_byte_span
     {
         auto const actual_count = count == npos ? size() - offset : count;
-        return writable_byte_span{m_storage.data() + offset, m_storage.size()};
+        return writable_byte_span{m_storage.data() + offset, actual_count};
     }
 
 private:

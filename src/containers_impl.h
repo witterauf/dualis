@@ -51,3 +51,17 @@ constexpr auto byte_container<Allocator, EmbeddedSize>::append_packed_tuple(
     });
     return *this;
 }
+
+template <byte_range LHS, byte_range RHS> bool operator==(const LHS& lhs, const RHS& rhs)
+{
+    if (lhs.size() != rhs.size())
+    {
+        return false;
+    }
+    return compare_bytes(lhs.data(), rhs.data(), lhs.size());
+}
+
+template <byte_range LHS, byte_range RHS> bool operator!=(const LHS& lhs, const RHS& rhs)
+{
+    return !(lhs == rhs);
+}

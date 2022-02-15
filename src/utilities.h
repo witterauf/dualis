@@ -148,12 +148,46 @@ namespace detail {
 static constexpr char HexDigits[] = {'0', '1', '2', '3', '4', '5', '6', '7',
                                      '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
 
-}
+static constexpr char BinaryDigits[] = {'0', '1'};
+
+} // namespace detail
 
 inline auto to_hex_string(const std::byte value) -> std::string
 {
     return std::string{detail::HexDigits[std::to_integer<uint8_t>(value) >> 4],
                        detail::HexDigits[std::to_integer<uint8_t>(value) & 0xf]};
+}
+
+inline auto to_hex_string(long long value) -> std::string
+{
+    if (value == 0)
+    {
+        return "0";
+    }
+
+    std::string hex;
+    while (value != 0)
+    {
+        hex += detail::HexDigits[value & 0xf];
+        value >>= 4;
+    }
+    return std::string(hex.crbegin(), hex.crend());
+}
+
+inline auto to_binary_string(long long value) -> std::string
+{
+    if (value == 0)
+    {
+        return "0";
+    }
+
+    std::string result;
+    while (value != 0)
+    {
+        result += detail::BinaryDigits[value & 1];
+        value >>= 1;
+    }
+    return std::string(result.crbegin(), result.crend());
 }
 
 namespace literals {
