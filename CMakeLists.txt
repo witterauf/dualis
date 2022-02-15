@@ -3,6 +3,7 @@ project(dualis LANGUAGES CXX VERSION 0.1)
 
 option(DUALIS_BUILD_TESTS OFF)
 option(DUALIS_BUILD_EXAMPLES OFF)
+option(DUALIS_ENABLE_INSTALL ON)
 
 add_library(dualis INTERFACE)
 target_include_directories(dualis
@@ -25,29 +26,31 @@ set(DUALIS_HEADERS
 
 set_target_properties(dualis PROPERTIES PUBLIC_HEADER "${DUALIS_HEADERS}")
 
-include(CMakePackageConfigHelpers)
-write_basic_package_version_file(
-  "${PROJECT_BINARY_DIR}/dualisConfigVersion.cmake"
-  VERSION ${PROJECT_VERSION}
-  COMPATIBILITY AnyNewerVersion
-)
+if(DUALIS_ENABLE_INSTALL)
+  include(CMakePackageConfigHelpers)
+  write_basic_package_version_file(
+    "${PROJECT_BINARY_DIR}/dualisConfigVersion.cmake"
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY AnyNewerVersion
+  )
 
-include(CMakePackageConfigHelpers)
-configure_package_config_file(
-  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/dualisConfig.cmake.in"
-  "${CMAKE_CURRENT_BINARY_DIR}/dualisConfig.cmake"
-  INSTALL_DESTINATION lib/cmake/dualis
-)
+  include(CMakePackageConfigHelpers)
+  configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/dualisConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/dualisConfig.cmake"
+    INSTALL_DESTINATION lib/cmake/dualis
+  )
 
-install(TARGETS dualis
-  EXPORT dualis
-  PUBLIC_HEADER DESTINATION include/
-)
-install(EXPORT dualis DESTINATION lib/cmake/dualis)
-install(FILES "${CMAKE_CURRENT_BINARY_DIR}/dualisConfigVersion.cmake"
-              "${CMAKE_CURRENT_BINARY_DIR}/dualisConfig.cmake"
-        DESTINATION lib/cmake/dualis
-)
+  install(TARGETS dualis
+    EXPORT dualis
+    PUBLIC_HEADER DESTINATION include/
+  )
+  install(EXPORT dualis DESTINATION lib/cmake/dualis)
+  install(FILES "${CMAKE_CURRENT_BINARY_DIR}/dualisConfigVersion.cmake"
+                "${CMAKE_CURRENT_BINARY_DIR}/dualisConfig.cmake"
+          DESTINATION lib/cmake/dualis
+  )
+endif()
 
 if(DUALIS_BUILD_EXAMPLES)
   add_subdirectory(examples)
