@@ -585,6 +585,11 @@ public:
         }
     }
 
+    constexpr void clear()
+    {
+        m_length = 0;
+    }
+
     // Resizes the storage without initializing its content and returns the pointer to the new
     // storage.
     constexpr auto reassign(size_type count) -> std::byte*
