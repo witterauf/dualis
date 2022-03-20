@@ -860,7 +860,8 @@ public:
         copy_bytes(m_storage.data(), bytes, count);
     }
 
-    constexpr byte_container(size_type count, const allocator_type& allocator = allocator_type{})
+    constexpr explicit byte_container(size_type count,
+                                      const allocator_type& allocator = allocator_type{})
         : m_storage{count, allocator}
     {
     }
