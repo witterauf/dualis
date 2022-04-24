@@ -65,3 +65,18 @@ template <byte_range LHS, byte_range RHS> bool operator!=(const LHS& lhs, const 
 {
     return !(lhs == rhs);
 }
+
+template <byte_range LHS, byte_range RHS>
+auto operator<=>(const LHS& lhs, const RHS& rhs) -> std::strong_ordering
+{
+    auto const lexicographic =
+        compare_bytes(lhs.data(), rhs.data(), std::min(lhs.size(), rhs.size()));
+    if (lexicographic != 0)
+    {
+        return lexicographic > 0 ? std::strong_ordering::greater : std::strong_ordering::less;
+    }
+    else
+    {
+        return lhs.size() <=> rhs.size();
+    }
+}
