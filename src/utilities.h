@@ -190,6 +190,48 @@ inline auto to_binary_string(long long value) -> std::string
     return std::string(result.crbegin(), result.crend());
 }
 
+template <byte_range Bytes> auto to_base64(const Bytes& bytes) -> std::string
+{
+    auto const length = std::ranges::size(bytes);
+    auto const* data = reinterpret_cast<const uint8_t*>(std::ranges::cdata(bytes));
+    size_t offset = 0;
+    std::string base64;
+    for (; offset < length; offset += 3)
+    {
+        uint8_t separated;
+        separated = data[offset] & 0x3f;
+        base64 += static_cast<char>(separated) + 'A';
+        separated = (data[offset] >> 6) | ((data[offset + 1] & 0xf) << 2);
+        base64 += static_cast<char>(separated) + 'A';
+        separated = ((data[offset + 1] >> 4) & 0xf) | ((data[offset + 2] & 0x3) << 4);
+        base64 += static_cast<char>(separated) + 'A';
+        separated = data[offset + 2] >> 2;
+        base64 += static_cast<char>(separated) + 'A';
+    }
+    if (offset < length)
+    {
+        if (length - offset == 2)
+        {
+            uint8_t separated;
+            separated = data[offset] & 0x3f;
+            base64 += static_cast<char>(separated) + 'A';
+            separated = (data[offset] >> 6) | ((data[offset + 1] & 0xf) << 2);
+            base64 += static_cast<char>(separated) + 'A';
+            separated = (data[offset + 1] >> 4) & 0xf;
+            base64 += static_cast<char>(separated) + 'A';
+        }
+        if (length - offset == 1)
+        {
+            uint8_t separated;
+            separated = data[offset] & 0x3f;
+            base64 += static_cast<char>(separated) + 'A';
+            separated = data[offset] >> 6;
+            base64 += static_cast<char>(separated) + 'A';
+        }
+    }
+    return base64;
+}
+
 namespace literals {
 
 consteval auto operator"" _b(unsigned long long int value) -> std::byte
