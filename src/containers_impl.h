@@ -58,7 +58,7 @@ template <byte_range LHS, byte_range RHS> bool operator==(const LHS& lhs, const 
     {
         return false;
     }
-    return compare_bytes(lhs.data(), rhs.data(), lhs.size());
+    return compare_bytes(lhs.data(), rhs.data(), lhs.size()) == 0;
 }
 
 template <byte_range LHS, byte_range RHS> bool operator!=(const LHS& lhs, const RHS& rhs)
