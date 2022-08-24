@@ -192,41 +192,47 @@ inline auto to_binary_string(long long value) -> std::string
 
 template <byte_range Bytes> auto to_base64(const Bytes& bytes) -> std::string
 {
+    static constexpr char Digits[65] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
     auto const length = std::ranges::size(bytes);
     auto const* data = reinterpret_cast<const uint8_t*>(std::ranges::cdata(bytes));
     size_t offset = 0;
     std::string base64;
-    for (; offset < length; offset += 3)
+    for (; offset + 3 <= length; offset += 3)
     {
         uint8_t separated;
-        separated = data[offset] & 0x3f;
-        base64 += static_cast<char>(separated) + 'A';
-        separated = (data[offset] >> 6) | ((data[offset + 1] & 0xf) << 2);
-        base64 += static_cast<char>(separated) + 'A';
-        separated = ((data[offset + 1] >> 4) & 0xf) | ((data[offset + 2] & 0x3) << 4);
-        base64 += static_cast<char>(separated) + 'A';
-        separated = data[offset + 2] >> 2;
-        base64 += static_cast<char>(separated) + 'A';
+        separated = data[offset] >> 2;
+        base64 += Digits[separated];
+        separated = ((data[offset] & 0x03) << 4) | (data[offset + 1] >> 4);
+        base64 += Digits[separated];
+        separated = ((data[offset + 1] & 0x0f) << 2) | (data[offset + 2] >> 6);
+        base64 += Digits[separated];
+        separated = data[offset + 2] & 0x3f;
+        base64 += Digits[separated];
     }
     if (offset < length)
     {
         if (length - offset == 2)
         {
             uint8_t separated;
-            separated = data[offset] & 0x3f;
-            base64 += static_cast<char>(separated) + 'A';
-            separated = (data[offset] >> 6) | ((data[offset + 1] & 0xf) << 2);
-            base64 += static_cast<char>(separated) + 'A';
-            separated = (data[offset + 1] >> 4) & 0xf;
-            base64 += static_cast<char>(separated) + 'A';
+            separated = data[offset] >> 2;
+            base64 += Digits[separated];
+            separated = ((data[offset] & 0x03) << 4) | (data[offset + 1] >> 4);
+            base64 += Digits[separated];
+            separated = (data[offset + 1] & 0x0f) << 2;
+            base64 += Digits[separated];
+            base64 += '=';
         }
         if (length - offset == 1)
         {
             uint8_t separated;
-            separated = data[offset] & 0x3f;
-            base64 += static_cast<char>(separated) + 'A';
-            separated = data[offset] >> 6;
-            base64 += static_cast<char>(separated) + 'A';
+            separated = data[offset] >> 2;
+            base64 += Digits[separated];
+            separated = (data[offset] & 0x03) << 4;
+            base64 += Digits[separated];
+            base64 += '=';
+            base64 += '=';
         }
     }
     return base64;
