@@ -248,5 +248,7 @@ consteval auto operator"" _b(unsigned long long int value) -> std::byte
     }
     return std::byte{static_cast<uint8_t>(value)};
 }
+
 } // namespace literals
+
 } // namespace dualis

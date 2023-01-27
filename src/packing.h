@@ -117,14 +117,14 @@ template <std::default_initializable T> struct raw
 namespace detail {
 
 template <byte_packing Packing>
-[[nodiscard]] auto _unpack_from(const std::byte* bytes, Packing packing)
+[[nodiscard]] auto _unpack_from(const std::byte* bytes, Packing)
     -> std::tuple<typename Packing::value_type>
 {
     return std::make_tuple(Packing::unpack(bytes));
 }
 
 template <byte_packing Packing, byte_packing... Packings>
-[[nodiscard]] auto _unpack_from(const std::byte* bytes, Packing packing, Packings... packings)
+[[nodiscard]] auto _unpack_from(const std::byte* bytes, Packing, Packings... packings)
 {
     auto const value = Packing::unpack(bytes);
     auto const remaining = _unpack_from(bytes + Packing::size(), packings...);

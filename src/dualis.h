@@ -9,6 +9,9 @@
 #include "packing.h"
 #include "streams.h"
 
+#include <bit>
+
 namespace dualis {
 #include "containers_impl.h"
+#include "utilities_impl.h"
 }
