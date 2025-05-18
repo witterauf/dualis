@@ -1,6 +1,6 @@
 # `dualis`
 
-`dualis` is a C++20 header-only library for working with binary data, that is, on sequences of bytes.
+`dualis` is a C++23 header-only library for working with binary data, that is, on sequences of bytes.
 Some highlights:
 
 - `std::byte` is consequently used to represent a byte to improve type safety and thus improve the correctness of implementations.

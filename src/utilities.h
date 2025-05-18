@@ -336,7 +336,7 @@ auto from_base64(std::string_view base64) -> std::optional<Bytes>
 
 namespace literals {
 
-consteval auto operator"" _b(unsigned long long int value) -> std::byte
+consteval auto operator""_b(unsigned long long int value) -> std::byte
 {
     if (value >= 0x100)
     {

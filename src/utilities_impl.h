@@ -1,11 +1,11 @@
 namespace literals {
 
-inline auto operator"" _bspan(const char* ascii, std::size_t length) -> byte_span
+inline auto operator""_bspan(const char* ascii, std::size_t length) -> byte_span
 {
     return byte_span{reinterpret_cast<const std::byte*>(ascii), length};
 }
 
-}
+} // namespace literals
 
 namespace detail {
 
@@ -44,7 +44,8 @@ void hex_dump(byte_span data, LineConsumer&& consume, size_t columns = 16, size_
 
         auto hex_pos = address_width + separator_width;
         auto ascii_pos = hex_pos + hex_width + separator_width;
-        for (size_t i{0}; i < columns && offset + i < data.size(); ++i, hex_pos += 3, ascii_pos += 1)
+        for (size_t i{0}; i < columns && offset + i < data.size();
+             ++i, hex_pos += 3, ascii_pos += 1)
         {
             auto const value = static_cast<char>(data[offset + i]);
             line[hex_pos] = detail::HexDigits[(value >> 4) & 0xf];

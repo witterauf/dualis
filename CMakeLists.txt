@@ -11,7 +11,7 @@ target_include_directories(dualis
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/>
     $<INSTALL_INTERFACE:include/>
 )
-target_compile_features(dualis INTERFACE cxx_std_20)
+target_compile_features(dualis INTERFACE cxx_std_23)
 add_library(dualis::dualis ALIAS dualis)
 
 set(DUALIS_HEADERS
@@ -58,5 +58,6 @@ endif()
 
 if(DUALIS_BUILD_TESTS)
   enable_testing()
+  include(cmake/get_cpm.cmake)
   add_subdirectory(test)
 endif()
